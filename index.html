@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>World Country Guesser</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app">
+        <div id="mapPane">
+            <div id="clock">00:00.0</div>
+            <div id="targetCountry">Press START</div>
+            <div id="flawlessBox">FLAWLESS!!<span>5% TIME BONUS</span></div>
+            <div id="toast"></div>
+
+            <!-- Container for floating labels -->
+            <div id="labelsContainer"></div>
+
+            <!-- Confetti Canvas -->
+            <canvas id="confettiCanvas"></canvas>
+
+            <svg id="mapSvg" viewBox="0 0 900 800" aria-label="Game map">
+                <!-- The content inside here is populated by JS based on selection -->
+                <g id="viewport"></g>
+            </svg>
+        </div>
+
+        <aside id="sidePane">
+            <div class="map-select-container">
+                <!-- New Map Selector -->
+                <select id="mapSelect" class="map-select">
+                    <!-- Options populated by JS -->
+                </select>
+                <p class="subtitle" style="margin-top:8px;">Wheel = zoom, drag = pan. Space = Start.</p>
+            </div>
+
+            <button id="startBtn" class="btn primary">START (Space)</button>
+
+            <div class="statsGrid">
+                <div class="card">
+                    <div class="k">Guessed/Remaining</div>
+                    <div class="v" id="guessedRemaining">0/0</div>
+                </div>
+                <div class="card">
+                    <div class="k">Mistakes</div>
+                    <div class="v" id="mistakes">0</div>
+                </div>
+                <div class="card">
+                    <div class="k">Accuracy</div>
+                    <div class="v" id="accuracy">—</div>
+                </div>
+                <div class="card">
+                    <div class="k">Best Time</div>
+                    <div class="v" id="best">—</div>
+                </div>
+            </div>
+
+            <div class="listContainer">
+                <div class="listHeader">
+                    <span id="listTitle">CONFIG</span>
+                    <span id="listAction" class="listAction">Select All</span>
+                </div>
+                <div class="listBox" id="foundList"></div>
+            </div>
+
+            <div class="subtitle" style="opacity:.9;">
+                Tip: microstates get enlarged hover/click targets.
+            </div>
+        </aside>
+    </div>
+
+    <script src="script.js" defer></script>
+</body>
+
+</html>

@@ -1,0 +1,1180 @@
+﻿(() => {
+  // --- DATA: DEFINE MAPS HERE ---
+  // --- DATA: MAP SOURCES ---
+  const MAP_SOURCES = {
+    europe: { name: "Europe", file: "Maps/europeLow.svg", viewBox: "50 50 700 700" },
+    africa: { name: "Africa", file: "Maps/africaLow.svg", viewBox: "370 310 280 280" },
+    asia: { name: "Asia", file: "Maps/asiaLow.svg", viewBox: "580 200 300 300" }, // Estimated viewbox based on coordinates
+    usa: { name: "USA", file: "Maps/usaLow.svg", viewBox: "130 -20 800 800" }
+  };
+
+  const mapCache = new Map();
+
+  // Helper to fetch and parse SVG
+  async function fetchMapData(key) {
+    if (mapCache.has(key)) return mapCache.get(key);
+
+    const src = MAP_SOURCES[key];
+    if (!src) return null;
+
+    try {
+      const resp = await fetch(src.file);
+      if (!resp.ok) throw new Error(`Failed to load ${src.file}`);
+      const text = await resp.text();
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "image/svg+xml");
+
+      const svgEl = doc.querySelector('svg');
+      if (!svgEl) throw new Error('No SVG element found');
+
+      // Use custom viewBox from config if available, else derive from SVG
+      const viewBox = src.viewBox || svgEl.getAttribute('viewBox') || "0 0 800 600";
+
+      // Extract content: try active grouping <g> or fallback to just paths
+      // The user provided structure shows a main <g> containing paths.
+      // We'll append all child nodes of the root SVG that are not defs/metadata?
+      // Simplest: take innerHTML of the SVG but filtering out scripts/etc if needed.
+      // Actually, we can just grab all 'path' elements or the first 'g'.
+      // Let's grab specific 'land' paths or just everything in the 'g'.
+
+      // Attempt to find the group containing paths
+      const g = doc.querySelector('g');
+      let content = "";
+      if (g) {
+        content = g.innerHTML;
+      } else {
+        // Fallback: all paths
+        const paths = doc.querySelectorAll('path');
+        paths.forEach(p => content += p.outerHTML);
+      }
+
+      const data = {
+        name: src.name,
+        viewBox,
+        content
+      };
+
+      mapCache.set(key, data);
+      return data;
+    } catch (e) {
+      console.error(e);
+      toast(`Error loading map: ${e.message}`, 'error');
+      return null;
+    }
+  }
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const now = () => performance.now();
+
+  function parseViewBox(vb) {
+    const parts = (vb || '').trim().split(/[ ,]+/).map(Number);
+    if (parts.length !== 4 || parts.some(n => !Number.isFinite(n))) return { x: 0, y: 0, w: 900, h: 800 };
+    return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+  }
+
+  // ... (rest of helpers unchanged until initMapSelector) ...
+
+  function initMapSelector() {
+    mapSelectEl.innerHTML = '';
+    const keys = Object.keys(MAP_SOURCES);
+    if (keys.length === 0) return;
+
+    for (const key of keys) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = MAP_SOURCES[key].name;
+      mapSelectEl.appendChild(opt);
+    }
+    if (!MAP_SOURCES[currentMapKey]) currentMapKey = keys[0];
+    mapSelectEl.value = currentMapKey;
+    mapSelectEl.addEventListener('change', (e) => loadMap(e.target.value));
+  }
+
+  async function loadMap(key) {
+    if (state.phase === 'running') {
+      if (state.rafTimer) cancelAnimationFrame(state.rafTimer);
+      state.rafTimer = 0;
+    }
+
+    // Show loading state?
+    viewport.innerHTML = ''; // Clear current
+    targetEl.textContent = 'Loading...';
+
+    const data = await fetchMapData(key);
+    if (!data) {
+      targetEl.textContent = 'Error loading map';
+      return;
+    }
+
+    currentMapKey = key;
+
+    svg.setAttribute('viewBox', data.viewBox);
+    viewport.innerHTML = data.content;
+
+    labelsContainer.innerHTML = '';
+    activeLabels = [];
+
+    buildCountryIndex();
+
+    view.base = parseViewBox(data.viewBox);
+    view.cur = { ...view.base };
+    scheduleViewBox({ ...view.cur });
+
+    resetGame();
+  }
+
+  function fmtTime(ms) {
+    const t = Math.max(0, ms);
+    const total = t / 1000;
+    const m = Math.floor(total / 60);
+    const s = total - m * 60;
+    const ss = s.toFixed(1).padStart(4, '0');
+    return `${String(m).padStart(2, '0')}:${ss}`;
+  }
+
+  function colorFor(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const hue = h % 360;
+    return `hsla(${hue}, 78%, 56%, 0.45)`;
+  }
+
+  // --- AUDIO ---
+  let audioCtx = null;
+  let audioUnlocked = false;
+
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      audioCtx = audioCtx || new AudioContext();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      g.gain.value = 0.0001;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.01);
+      audioUnlocked = true;
+    } catch (e) { console.error(e); }
+  }
+
+  function beep({ freq = 440, dur = 0.06, type = 'sine', gain = 0.05 } = {}) {
+    if (!audioUnlocked || !audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  }
+
+  function fanfare() {
+    if (!audioUnlocked || !audioCtx) return;
+    const base = 440;
+    const notes = [0, 4, 7, 12, 16].map(n => base * Math.pow(2, n / 12));
+    let t = audioCtx.currentTime;
+    for (let i = 0; i < notes.length; i++) {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(notes[i], t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.08, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t);
+      o.stop(t + 0.18);
+      t += 0.06;
+    }
+  }
+
+  function errorSound() {
+    if (!audioUnlocked || !audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, t0);
+    o.frequency.exponentialRampToValueAtTime(110, t0 + 0.18);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.07, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t0);
+    o.stop(t0 + 0.22);
+  }
+
+  // --- CONFETTI ---
+  const confettiCanvas = $('#confettiCanvas');
+  const ctx = confettiCanvas.getContext('2d');
+  let confettiParticles = [];
+  let confettiRaf = 0;
+
+  function resizeConfetti() {
+    confettiCanvas.width = confettiCanvas.offsetWidth;
+    confettiCanvas.height = confettiCanvas.offsetHeight;
+  }
+  window.addEventListener('resize', resizeConfetti);
+  resizeConfetti();
+
+  function spawnConfetti(originX, originY) {
+    for (let i = 0; i < 150; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const vel = 3 + Math.random() * 8;
+      confettiParticles.push({
+        x: originX, y: originY,
+        vx: Math.cos(angle) * vel,
+        vy: Math.sin(angle) * vel - 4, // Upward bias
+        grav: 0.15 + Math.random() * 0.1,
+        drag: 0.96,
+        color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+        size: 4 + Math.random() * 4,
+        rot: Math.random() * 360,
+        vRot: (Math.random() - 0.5) * 10
+      });
+    }
+    if (!confettiRaf) loopConfetti();
+  }
+
+  function loopConfetti() {
+    ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    if (confettiParticles.length === 0) {
+      confettiRaf = 0;
+      return;
+    }
+
+    for (let i = confettiParticles.length - 1; i >= 0; i--) {
+      const p = confettiParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += p.grav;
+      p.vx *= p.drag;
+      p.vy *= p.drag;
+      p.rot += p.vRot;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI / 180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.restore();
+
+      if (p.y > confettiCanvas.height + 20) confettiParticles.splice(i, 1);
+    }
+    confettiRaf = requestAnimationFrame(loopConfetti);
+  }
+
+  // --- DOM ELEMENTS ---
+  const svg = $('#mapSvg');
+  const viewport = $('#viewport');
+  const startBtn = $('#startBtn');
+  const clockEl = $('#clock');
+  const targetEl = $('#targetCountry');
+  const toastEl = $('#toast');
+  const guessedRemainingEl = $('#guessedRemaining');
+  const mistakesEl = $('#mistakes');
+  const accuracyEl = $('#accuracy');
+  const bestEl = $('#best');
+  const foundListEl = $('#foundList');
+  const listTitleEl = $('#listTitle');
+  const listActionEl = $('#listAction');
+  const mapSelectEl = $('#mapSelect');
+  const mapPane = $('#mapPane');
+  const labelsContainer = $('#labelsContainer');
+  const flawlessBox = $('#flawlessBox');
+
+  let toastTimer = null;
+  function toast(msg, kind = '') {
+    clearTimeout(toastTimer);
+    toastEl.className = '';
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    if (kind) toastEl.classList.add(kind);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show', 'good', 'bad'), 1200);
+  }
+
+  // --- STATE ---
+  let currentMapKey = 'europe';
+  let countries = [];
+  let countryById = new Map();
+  // We keep track of active labels to update their position on zoom/pan
+  let activeLabels = [];
+
+  const state = {
+    phase: 'idle', // idle | running | done
+    startAt: 0,
+    rafTimer: 0,
+    elapsedMs: 0,
+    remainingIds: [],
+    targetId: null,
+    targetPickTime: 0, // When current target was picked
+    mistakes: 0,
+    correct: 0,
+    found: [],
+    bestMs: null,
+    isFullRun: true,
+  };
+
+  // --- LABELS SYSTEM ---
+  function spawnLabel(text, type = 'permanent', position = null) {
+    if (type === 'permanent') {
+      activeLabels = activeLabels.filter(l => {
+        if (l.type === 'permanent') {
+          l.el.remove();
+          return false;
+        }
+        return true;
+      });
+    }
+
+    const div = document.createElement('div');
+    div.className = `map-label ${type === 'error' ? 'error' : ''}`;
+    div.textContent = text;
+
+    const labelObj = { el: div, type };
+
+    if (type === 'error' && position) {
+      labelObj.mapX = position.mapX;
+      labelObj.mapY = position.mapY;
+      updateLabelPosition(labelObj);
+    }
+
+    if (type === 'permanent' && position) {
+      const r = mapPane.getBoundingClientRect();
+      div.style.left = (position.clientX - r.left) + 'px';
+      div.style.top = (position.clientY - r.top) + 'px';
+    }
+
+    labelsContainer.appendChild(div);
+
+    requestAnimationFrame(() => div.classList.add('visible'));
+
+    if (type === 'error') {
+      activeLabels.push(labelObj);
+      setTimeout(() => {
+        div.classList.remove('visible');
+        setTimeout(() => {
+          div.remove();
+          activeLabels = activeLabels.filter(l => l !== labelObj);
+        }, 200);
+      }, 1500);
+    } else {
+      activeLabels.push(labelObj);
+    }
+  }
+
+  function clearPermanentLabels() {
+    activeLabels = activeLabels.filter(l => {
+      if (l.type === 'permanent') {
+        l.el.remove();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function updateLabelPosition(l) {
+    if (!view.cur || l.type !== 'error') return;
+    const rect = mapPane.getBoundingClientRect();
+    const nx = (l.mapX - view.cur.x) / view.cur.w;
+    const ny = (l.mapY - view.cur.y) / view.cur.h;
+    const sx = nx * rect.width;
+    const sy = ny * rect.height;
+    l.el.style.left = `${sx}px`;
+    l.el.style.top = `${sy}px`;
+  }
+
+  function updateAllLabels() {
+    for (const l of activeLabels) {
+      updateLabelPosition(l);
+    }
+  }
+
+  // --- MAP LOADING ---
+
+
+  function stripBackgroundRects() {
+    const vb = parseViewBox(svg.getAttribute('viewBox'));
+    const rects = [...svg.querySelectorAll('rect')];
+    for (const r of rects) {
+      const fill = (r.getAttribute('fill') || '').trim().toLowerCase();
+      const x = Number(r.getAttribute('x') || 0);
+      const y = Number(r.getAttribute('y') || 0);
+      const w = Number(r.getAttribute('width') || 0);
+      const h = Number(r.getAttribute('height') || 0);
+      const looksLikeBg = (x === vb.x || x === 0) && (y === vb.y || y === 0) && w >= vb.w * 0.98 && h >= vb.h * 0.98;
+      const isOcean = fill.includes('url(#ocean)');
+      if (looksLikeBg || isOcean) r.remove();
+    }
+  }
+
+  function getCountryIdFromEl(el) {
+    if (!el) return null;
+    if (el.dataset && el.dataset.ref) return el.dataset.ref;
+    if (el.id) return el.id;
+    const p = el.closest ? el.closest('[data-ref], path.land, path.country, [id]') : null;
+    if (!p) return null;
+    if (p.dataset && p.dataset.ref) return p.dataset.ref;
+    return p.id || null;
+  }
+
+  function buildCountryIndex() {
+    stripBackgroundRects();
+    [...viewport.querySelectorAll('.hit')].forEach(n => n.remove());
+
+    const els = [...viewport.querySelectorAll('path.land, path.country, path[data-id]')];
+    countries = [];
+    countryById = new Map();
+
+    for (const el of els) {
+      const id = (el.getAttribute('id') || '').trim();
+      if (!id) continue;
+      const name = (el.getAttribute('title') || el.getAttribute('data-id') || el.getAttribute('data-name') || id).trim();
+      try {
+        const bbox = el.getBBox();
+        const c = { id, name, el, bbox, guessed: false, enabled: true };
+        countries.push(c);
+        countryById.set(id, c);
+      } catch (_) { }
+    }
+
+    countries.sort((a, b) => a.name.localeCompare(b.name));
+
+    const vb = parseViewBox(svg.getAttribute('viewBox'));
+    const vbArea = vb.w * vb.h;
+    if (countries.length > 0) {
+      const bboxAreas = countries.map(c => Math.max(0.000001, c.bbox.width * c.bbox.height)).sort((a, b) => a - b);
+      const p08 = bboxAreas[Math.floor(bboxAreas.length * 0.08)] || bboxAreas[0] || 0;
+      const absThresh = vbArea * 0.00035;
+      const microThresh = Math.min(absThresh, p08 * 1.2);
+
+      for (const c of countries) {
+        const a = c.bbox.width * c.bbox.height;
+        if (a > microThresh) continue;
+
+        const hp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hp.setAttribute('d', c.el.getAttribute('d') || '');
+        hp.setAttribute('class', 'hit hit-path');
+        hp.dataset.ref = c.id;
+        hp.setAttribute('stroke-width', '18');
+        hp.setAttribute('vector-effect', 'non-scaling-stroke');
+        hp.setAttribute('pointer-events', 'stroke');
+
+        const cx = c.bbox.x + c.bbox.width / 2;
+        const cy = c.bbox.y + c.bbox.height / 2;
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', String(cx));
+        dot.setAttribute('cy', String(cy));
+        dot.setAttribute('r', '0.1');
+        dot.setAttribute('class', 'hit hit-dot');
+        dot.dataset.ref = c.id;
+        dot.setAttribute('stroke-width', '26');
+        dot.setAttribute('vector-effect', 'non-scaling-stroke');
+        dot.setAttribute('pointer-events', 'stroke');
+
+        c.el.insertAdjacentElement('afterend', hp);
+        hp.insertAdjacentElement('afterend', dot);
+      }
+    }
+  }
+
+  // --- GAME LOGIC ---
+
+  function getBestTimeKey() {
+    return `best_ms_${currentMapKey}`;
+  }
+
+  function loadBestTime() {
+    if (currentMapKey === 'europe' && localStorage.getItem('eu_best_ms') && !localStorage.getItem(getBestTimeKey())) {
+      localStorage.setItem(getBestTimeKey(), localStorage.getItem('eu_best_ms'));
+    }
+    const stored = localStorage.getItem(getBestTimeKey());
+    state.bestMs = (stored && !isNaN(stored)) ? Number(stored) : null;
+  }
+
+  function setPhase(phase) {
+    state.phase = phase;
+    startBtn.textContent = (phase === 'running') ? 'RESET (Space)' : 'START (Space)';
+    startBtn.classList.add('primary');
+  }
+
+  function updateBestUI() {
+    bestEl.textContent = state.bestMs == null ? '—' : fmtTime(state.bestMs);
+  }
+
+  function updateGuessedRemaining() {
+    const total = state.remainingIds.length + state.correct;
+    guessedRemainingEl.textContent = `${state.correct}/${total}`;
+  }
+
+  function updateMistakesUI() {
+    mistakesEl.textContent = String(state.mistakes);
+    const total = state.correct + state.mistakes;
+    accuracyEl.textContent = total === 0 ? '—' : `${Math.round((state.correct / total) * 100)}%`;
+  }
+
+  function checkHighScore(finalTime) {
+    if (state.isFullRun && countries.length > 0) {
+      if (state.bestMs == null || finalTime < state.bestMs) {
+        state.bestMs = finalTime;
+        localStorage.setItem(getBestTimeKey(), String(state.bestMs));
+        updateBestUI();
+        toast('New best time!', 'good');
+      } else {
+        toast('Completed!', 'good');
+      }
+    } else {
+      toast('Custom run done!', 'good');
+    }
+  }
+
+  function animateClockRewind(fromMs, toMs, onComplete) {
+    clockEl.classList.add('bonus');
+    const duration = 2000;
+    const start = performance.now();
+
+    function step() {
+      const nowT = performance.now();
+      const progress = Math.min(1, (nowT - start) / duration);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const currentMs = fromMs - ((fromMs - toMs) * ease);
+
+      clockEl.textContent = fmtTime(currentMs);
+
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        clockEl.classList.remove('bonus');
+        if (onComplete) onComplete();
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function renderFoundList() {
+    listTitleEl.textContent = 'FOUND (Sorted by Time)';
+    listActionEl.textContent = '';
+    listActionEl.onclick = null;
+    foundListEl.innerHTML = '';
+
+    const sorted = [...state.found].sort((a, b) => b.timeMs - a.timeMs);
+
+    for (const f of sorted) {
+      const div = document.createElement('div');
+      div.className = 'listItem';
+
+      const left = document.createElement('div');
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'time-val';
+      timeSpan.textContent = (f.timeMs / 1000).toFixed(1) + 's';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = f.name;
+      nameSpan.style.fontWeight = '900';
+      nameSpan.style.fontSize = '13px';
+
+      left.appendChild(timeSpan);
+      left.appendChild(nameSpan);
+
+      const right = document.createElement('span');
+      right.className = 'pill';
+      right.textContent = f.id;
+
+      div.addEventListener('mouseenter', () => {
+        const c = countryById.get(f.id);
+        if (c) c.el.classList.add('hovered');
+      });
+      div.addEventListener('mouseleave', () => {
+        const c = countryById.get(f.id);
+        if (c) c.el.classList.remove('hovered');
+      });
+
+      div.appendChild(left);
+      div.appendChild(right);
+      foundListEl.appendChild(div);
+    }
+  }
+
+  function renderConfigList() {
+    listTitleEl.textContent = 'CONFIG';
+    listActionEl.textContent = 'Select All';
+    listActionEl.onclick = () => {
+      const allEnabled = countries.every(c => c.enabled);
+      countries.forEach(c => c.enabled = !allEnabled);
+      renderConfigList();
+    };
+
+    foundListEl.innerHTML = '';
+    if (countries.length === 0) {
+      foundListEl.innerHTML = '<div style="padding:10px; color:var(--muted); font-size:12px;">No countries found. Add SVG paths to code.</div>';
+      return;
+    }
+
+    for (const c of countries) {
+      const div = document.createElement('div');
+      div.className = `listItem config ${c.enabled ? '' : 'disabled'}`;
+
+      const label = document.createElement('div');
+      label.textContent = c.name;
+      label.style.fontWeight = '700';
+      label.style.fontSize = '13px';
+
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = c.enabled;
+      chk.dataset.id = c.id;
+
+      chk.onclick = (e) => { e.stopPropagation(); c.enabled = chk.checked; div.className = `listItem config ${c.enabled ? '' : 'disabled'}`; };
+
+      div.onclick = (e) => {
+        if (e.target !== chk) {
+          chk.checked = !chk.checked;
+          c.enabled = chk.checked;
+          div.className = `listItem config ${c.enabled ? '' : 'disabled'}`;
+        }
+      };
+
+      div.addEventListener('mouseenter', () => {
+        c.el.classList.add('hovered');
+      });
+      div.addEventListener('mouseleave', () => {
+        c.el.classList.remove('hovered');
+      });
+
+      div.appendChild(label);
+      div.appendChild(chk);
+      foundListEl.appendChild(div);
+    }
+  }
+
+  function pickNextTarget() {
+    if (state.remainingIds.length === 0) {
+      state.targetId = null;
+
+      // Stop the game clock
+      if (state.rafTimer) cancelAnimationFrame(state.rafTimer);
+      state.rafTimer = 0;
+
+      const totalGuesses = state.correct + state.mistakes;
+      const accuracy = totalGuesses > 0 ? Math.round((state.correct / totalGuesses) * 100) : 0;
+      const flawless = (state.mistakes === 0 && state.correct > 0);
+      let finalTime = state.elapsedMs;
+
+      if (flawless) {
+        targetEl.textContent = `DONE!\n${accuracy}% Accuracy`;
+        flawlessBox.classList.add('show');
+
+        // Bonus Calc
+        const bonusTime = Math.floor(finalTime * 0.95);
+
+        // Confetti from Flawless Box
+        const r = flawlessBox.getBoundingClientRect();
+        const mapR = mapPane.getBoundingClientRect();
+        spawnConfetti(r.left - mapR.left + r.width / 2, r.top - mapR.top + r.height / 2);
+
+        fanfare();
+
+        // Animate Clock
+        animateClockRewind(finalTime, bonusTime, () => {
+          checkHighScore(bonusTime);
+        });
+      } else {
+        targetEl.textContent = `DONE!\n${accuracy}% Accuracy`;
+        checkHighScore(finalTime);
+      }
+
+      setPhase('done');
+      return;
+    }
+    const idx = Math.floor(Math.random() * state.remainingIds.length);
+    const id = state.remainingIds[idx];
+    state.targetId = id;
+
+    // Set time tracking for next guess
+    state.targetPickTime = now();
+
+    const c = countryById.get(id);
+    targetEl.textContent = c ? c.name : id;
+  }
+
+  function resetGame() {
+    clearPermanentLabels();
+    flawlessBox.classList.remove('show');
+    clockEl.classList.remove('bonus');
+
+    for (const c of countries) {
+      c.guessed = false;
+      c.el.classList.remove('guessed', 'hovered', 'wrongflash');
+      c.el.style.removeProperty('--c');
+    }
+    state.startAt = 0;
+    state.elapsedMs = 0;
+    state.remainingIds = [];
+    state.targetId = null;
+    state.mistakes = 0;
+    state.correct = 0;
+    state.found = [];
+    state.isFullRun = false;
+
+    loadBestTime();
+
+    targetEl.textContent = 'Press START';
+    clockEl.textContent = '00:00.0';
+
+    guessedRemainingEl.textContent = '0/0';
+    updateMistakesUI();
+    renderConfigList();
+    updateBestUI();
+
+    if (state.rafTimer) cancelAnimationFrame(state.rafTimer);
+    state.rafTimer = 0;
+
+    setPhase('idle');
+  }
+
+  function startGame() {
+    const activeIds = countries.filter(c => c.enabled).map(c => c.id);
+
+    if (activeIds.length === 0) {
+      toast('Map is empty!', 'bad');
+      return;
+    }
+
+    clearPermanentLabels();
+    flawlessBox.classList.remove('show');
+
+    state.startAt = now();
+    state.elapsedMs = 0;
+    state.mistakes = 0;
+    state.correct = 0;
+    state.found = [];
+    state.remainingIds = activeIds;
+
+    state.isFullRun = (activeIds.length === countries.length);
+
+    updateGuessedRemaining();
+    updateMistakesUI();
+    renderFoundList();
+
+    setPhase('running');
+    pickNextTarget();
+    tickClock();
+    toast('Go!', 'good');
+  }
+
+  function tickClock() {
+    if (state.phase !== 'running') return;
+    state.elapsedMs = now() - state.startAt;
+    clockEl.textContent = fmtTime(state.elapsedMs);
+    state.rafTimer = requestAnimationFrame(tickClock);
+  }
+
+  function handleGuess(clickedId, clientX, clientY) {
+    if (state.phase !== 'running') return;
+    if (!clickedId) return;
+
+    const clicked = countryById.get(clickedId);
+    if (!clicked || !clicked.enabled) return;
+    if (clicked.guessed) return;
+
+    if (clickedId === state.targetId) {
+      clicked.guessed = true;
+      clicked.el.classList.add('guessed');
+      clicked.el.style.setProperty('--c', colorFor(clickedId));
+
+      const timeTaken = now() - state.targetPickTime;
+
+      state.correct++;
+      state.found.push({ id: clickedId, name: clicked.name, timeMs: timeTaken });
+
+      const i = state.remainingIds.indexOf(clickedId);
+      if (i >= 0) state.remainingIds.splice(i, 1);
+
+      updateGuessedRemaining();
+      updateMistakesUI();
+      renderFoundList();
+
+      fanfare();
+      toast(`Correct: ${clicked.name}`, 'good');
+      pickNextTarget();
+    } else {
+      state.mistakes++;
+      updateMistakesUI();
+      errorSound();
+
+      const mapPt = svgPointFromClient(clientX, clientY);
+      spawnLabel(clicked.name, 'error', { mapX: mapPt.x, mapY: mapPt.y });
+
+      clicked.el.classList.add('wrongflash');
+      setTimeout(() => clicked.el.classList.remove('wrongflash'), 260);
+      toast(`Wrong: ${clicked.name}`, 'bad');
+    }
+  }
+
+  // --- ZOOM / PAN / MOBILE ---
+  const view = {
+    base: { x: 0, y: 0, w: 900, h: 800 },
+    cur: null,
+    minScale: 0.9,
+    maxScale: 18,
+    pending: null,
+    raf: 0,
+  };
+
+  function applyViewBox() {
+    view.raf = 0;
+    if (!view.pending) return;
+    view.cur = view.pending;
+    view.pending = null;
+    svg.setAttribute('viewBox', `${view.cur.x} ${view.cur.y} ${view.cur.w} ${view.cur.h}`);
+    updateAllLabels();
+  }
+
+  function scheduleViewBox(next) {
+    view.pending = next;
+    if (!view.raf) view.raf = requestAnimationFrame(applyViewBox);
+  }
+
+  function svgPointFromClient(clientX, clientY) {
+    const r = svg.getBoundingClientRect();
+    const px = (clientX - r.left) / r.width;
+    const py = (clientY - r.top) / r.height;
+    return { x: view.cur.x + px * view.cur.w, y: view.cur.y + py * view.cur.h };
+  }
+
+  function zoomAt(clientX, clientY, zoomFactor) {
+    const vb = view.cur;
+    const p = svgPointFromClient(clientX, clientY);
+
+    const newW = clamp(vb.w / zoomFactor, view.base.w / view.maxScale, view.base.w / view.minScale);
+    const newH = clamp(vb.h / zoomFactor, view.base.h / view.maxScale, view.base.h / view.minScale);
+
+    const kx = (p.x - vb.x) / vb.w;
+    const ky = (p.y - vb.y) / vb.h;
+
+    scheduleViewBox({
+      x: p.x - kx * newW,
+      y: p.y - ky * newH,
+      w: newW,
+      h: newH
+    });
+  }
+
+  const ptr = {
+    pointers: new Map(), // active pointers for multitouch
+    down: false,
+    id: null,
+    startX: 0,
+    startY: 0,
+    startVb: null,
+    dragging: false,
+    downCountryId: null,
+    hoveredId: null,
+    hoverSoundAt: 0,
+    captured: false,
+    // pinch state
+    initDist: 0,
+    initVbW: 0,
+    initVbH: 0,
+    initCenter: { x: 0, y: 0 }
+  };
+
+  function getPointerCenter() {
+    let x = 0, y = 0;
+    let c = 0;
+    for (const p of ptr.pointers.values()) {
+      x += p.clientX;
+      y += p.clientY;
+      c++;
+    }
+    if (c === 0) return null;
+    return { x: x / c, y: y / c };
+  }
+
+  function getPinchDist() {
+    if (ptr.pointers.size < 2) return 0;
+    const pts = [...ptr.pointers.values()];
+    const dx = pts[0].clientX - pts[1].clientX;
+    const dy = pts[0].clientY - pts[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function clearHover() {
+    if (ptr.hoveredId) {
+      countryById.get(ptr.hoveredId)?.el?.classList?.remove('hovered');
+      ptr.hoveredId = null;
+      clearPermanentLabels();
+    }
+  }
+
+  function setHover(id, clientX, clientY) {
+    const existingLabel = activeLabels.find(l => l.type === 'permanent');
+    if (existingLabel && clientX != null) {
+      const r = mapPane.getBoundingClientRect();
+      existingLabel.el.style.left = (clientX - r.left) + 'px';
+      existingLabel.el.style.top = (clientY - r.top) + 'px';
+    }
+
+    if (id === ptr.hoveredId) return;
+    if (ptr.hoveredId) countryById.get(ptr.hoveredId)?.el?.classList?.remove('hovered');
+
+    ptr.hoveredId = id;
+    if (id) {
+      const c = countryById.get(id);
+      if (c && !c.guessed && c.enabled) {
+        c.el.classList.add('hovered');
+        if (state.phase !== 'running') {
+          spawnLabel(c.name, 'permanent', { clientX, clientY });
+        }
+        const t = now();
+        if (t - ptr.hoverSoundAt > 70) {
+          beep({ freq: 820, dur: 0.028, type: 'sine', gain: 0.03 });
+          ptr.hoverSoundAt = t;
+        }
+      } else {
+        clearPermanentLabels();
+      }
+    } else {
+      clearPermanentLabels();
+    }
+  }
+
+  function elementUnderPointer(clientX, clientY) {
+    return document.elementFromPoint(clientX, clientY);
+  }
+
+  // Prevent automatic zoom on iOS mainly
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+  svg.addEventListener('wheel', (e) => {
+    unlockAudio();
+    e.preventDefault();
+    const delta = Math.sign(e.deltaY);
+    zoomAt(e.clientX, e.clientY, delta > 0 ? 0.92 : 1.08);
+  }, { passive: false });
+
+  svg.addEventListener('pointerdown', (e) => {
+    unlockAudio();
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+    ptr.pointers.set(e.pointerId, e);
+    try { svg.setPointerCapture(e.pointerId); } catch (_) { }
+
+    if (ptr.pointers.size === 1) {
+      // Primary interaction
+      ptr.down = true;
+      ptr.id = e.pointerId; // main pointer logic for drag
+      ptr.dragging = false;
+      ptr.startX = e.clientX;
+      ptr.startY = e.clientY;
+      ptr.startVb = { ...view.cur };
+
+      const el = elementUnderPointer(e.clientX, e.clientY);
+      ptr.downCountryId = getCountryIdFromEl(el);
+    } else if (ptr.pointers.size === 2) {
+      // Start Pinch
+      ptr.dragging = true; // Two fingers = drag/zoom, not click
+      ptr.downCountryId = null; // Cancel any potential click
+      ptr.initDist = getPinchDist();
+      ptr.initVbW = view.cur.w;
+      ptr.initCenter = getPointerCenter();
+      // Recalculate start viewbox relative to center?
+      // Actually simplest is just to base pinch logic on current
+    }
+  });
+
+  svg.addEventListener('pointermove', (e) => {
+    if (ptr.pointers.has(e.pointerId)) {
+      ptr.pointers.set(e.pointerId, e);
+    }
+
+    if (ptr.pointers.size === 2) {
+      // Pinch Logic
+      const dist = getPinchDist();
+      if (dist > 5 && ptr.initDist > 5) {
+        const scale = dist / ptr.initDist;
+        const newW = clamp(ptr.initVbW / scale, view.base.w / view.maxScale, view.base.w / view.minScale);
+        // Re-apply center
+        const center = getPointerCenter(); // average position of fingers
+        const vb = view.cur;
+        const ratio = view.base.w / view.base.h; // aspect ratio
+        const newH = newW / ratio; // maintain aspect if we want fixed aspect, but here width/height are linked in zoomAt. 
+        // Better to stick to zoomAt logic but continuous
+        // We can just calculate delta scale
+        // But let's verify if we need complex math.
+        // Simplified pinch:
+        const zoomFactor = scale;
+        // We need to zoom around the center point. 
+        // This requires some careful math to track "initCenter" in SVG coords
+        // For simplicity in this specialized tool:
+
+        // To do robust pinch to zoom, we'd need to track the vector.
+        // Let's rely on simple zoomAt call relative to previous frame? No, drift.
+        // Let's reset purely for now.
+        // Actually, let's treat it as a "zoomAt" the center point with ratio (dist / lastDist)
+
+        // Actually, we can reuse zoomAt logic but we need to track delta
+        // from last move event?
+        // To allow panning while zooming, multi-touch logic gets complex.
+
+        // Let's implement a "simple" version:
+        // Continuous zoom relative to center of pinch
+
+        // We need the PREVIOUS distance to calculate delta
+        // We don't store previous event in map easily without overhead.
+        // Let's just update initDist for next frame?
+
+        // Alternative:
+        // Just use the center of the two fingers as the zoom focus.
+        // This works well enough.
+        const newScale = dist / ptr.initDist;
+        // But scale is absolute from start of pinch. we need relative change.
+        // So we need to reset initDist every frame if we want relative application
+        // OR store initial viewbox and apply abs transform.
+        // Abs transform better for stability.
+        // ... But zoomAt logic modifies 'view.cur' immediately.
+        // So relative approach is easier with existing `zoomAt`.
+
+        // Wait, we can just do:
+        // zoomAt(center.x, center.y, dist / prevDist)
+        // But we need prevDist. 
+        // Let's store prevDist on the ptr object.
+      }
+    } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
+      // Single pointer drag/pan
+      const dx = e.clientX - ptr.startX;
+      const dy = e.clientY - ptr.startY;
+
+      if (!ptr.dragging && (dx * dx + dy * dy) > 25) {
+        ptr.dragging = true;
+      }
+
+      if (ptr.dragging) {
+        const r = svg.getBoundingClientRect();
+        const kx = ptr.startVb.w / r.width;
+        const ky = ptr.startVb.h / r.height;
+        scheduleViewBox({
+          x: ptr.startVb.x - dx * kx,
+          y: ptr.startVb.y - dy * ky,
+          w: ptr.startVb.w,
+          h: ptr.startVb.h,
+        });
+      }
+    }
+
+    if (!ptr.down || !ptr.dragging) {
+      const el = elementUnderPointer(e.clientX, e.clientY);
+      const hid = getCountryIdFromEl(el);
+      if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
+      else clearHover();
+    }
+  });
+
+  // Custom multi-touch move handler for pinch relative delta
+  // We need to hackily store previous distance for smooth zoom
+  let lastPinchDist = 0;
+  svg.addEventListener('pointermove', (e) => {
+    // This is a second listener, might conflict. Let's merge logic above? 
+    // Actually the above listener handles state.
+    // Let's refine the pinch logic inside the main listener blocks if possible.
+    // To keep code clean in this "write", I'll just add the pinch logic block here:
+    if (ptr.pointers.size === 2) {
+      const d = getPinchDist();
+      if (lastPinchDist > 0 && Math.abs(d - lastPinchDist) > 2) {
+        const center = getPointerCenter();
+        const factor = d / lastPinchDist;
+        // Limit speed
+        const safeFactor = clamp(factor, 0.8, 1.2);
+        zoomAt(center.x, center.y, safeFactor);
+
+        // Also handle Pan (center moved) - tricky with zoom. 
+        // Standard behavior: zoom around center.
+      }
+      lastPinchDist = d;
+    } else {
+      lastPinchDist = 0;
+    }
+  });
+
+  function endPointer(e) {
+    ptr.pointers.delete(e.pointerId);
+    try { svg.releasePointerCapture(e.pointerId); } catch (_) { }
+
+    if (ptr.pointers.size === 0) {
+      // All fingers up
+      if (ptr.down && !ptr.dragging && e.pointerId === ptr.id) {
+        // Click
+        handleGuess(ptr.downCountryId, e.clientX, e.clientY);
+      }
+      ptr.down = false;
+      ptr.dragging = false;
+      ptr.downCountryId = null;
+      ptr.id = null;
+    } else if (ptr.pointers.size === 1) {
+      // One finger remains, maybe switch to panning?
+      // Usually safer to just reset drag state to avoid jumps
+      ptr.down = false;
+      ptr.dragging = false;
+      // Optionally pick the remaining finger as new primary?
+      // Let's keep it simple: multi-touch end stops interaction until fresh start
+    }
+  }
+
+  svg.addEventListener('pointerup', endPointer);
+  svg.addEventListener('pointercancel', (e) => { endPointer(e); clearHover(); });
+
+  window.addEventListener('blur', () => {
+    ptr.down = false;
+    ptr.dragging = false;
+    ptr.downCountryId = null;
+    ptr.id = null;
+    ptr.pointers.clear();
+  });
+
+  function toggleStartReset() {
+    unlockAudio();
+    if (state.phase === 'running' || state.phase === 'done') {
+      resetGame();
+      toast('Reset. Press START.', '');
+    } else {
+      startGame();
+    }
+  }
+
+  startBtn.addEventListener('click', toggleStartReset);
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      toggleStartReset();
+    }
+  }, { passive: false });
+
+  // Init
+  // We'll call these after map data is guaranteed to be loaded if logic separated
+  // But here we rely on the object being populated before this IIFE finishes?
+  // No, we should call init at end of file.
+
+  // Expose init function if needed, or just run it:
+  // We will assume MAPS is populated by the time we run this.
+  // Actually, since we're writing MAPS here, we can run it.
+
+  // Wait for the next tick to ensure MAPS is fully injected if we use replacement?
+  setTimeout(() => {
+    initMapSelector();
+    loadMap('europe');
+  }, 100);
+
+})();
+
