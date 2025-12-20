@@ -343,19 +343,24 @@
 
     const labelObj = { el: div, type };
 
-    if (type === 'error' && position) {
-      labelObj.mapX = position.mapX;
-      labelObj.mapY = position.mapY;
-      updateLabelPosition(labelObj);
-    }
-
-    if (type === 'permanent' && position) {
-      const r = mapPane.getBoundingClientRect();
-      div.style.left = (position.clientX - r.left) + 'px';
-      div.style.top = (position.clientY - r.top) + 'px';
+    if (position) {
+      if (position.mapX !== undefined) {
+        labelObj.mapX = position.mapX;
+        labelObj.mapY = position.mapY;
+      } else if (position.clientX !== undefined) {
+        // Convert screen to map coordinates immediately
+        const pt = svgPointFromClient(position.clientX, position.clientY);
+        labelObj.mapX = pt.x;
+        labelObj.mapY = pt.y;
+      }
     }
 
     labelsContainer.appendChild(div);
+
+    // Set initial position immediately
+    if (labelObj.mapX !== undefined) {
+      updateLabelPosition(labelObj);
+    }
 
     requestAnimationFrame(() => div.classList.add('visible'));
 
@@ -384,14 +389,21 @@
   }
 
   function updateLabelPosition(l) {
-    if (!view.cur || l.type !== 'error') return;
+    if (!view.cur) return;
+
+    // Convert Map (SVG) Point -> Screen Point
+    const pt = svg.createSVGPoint();
+    pt.x = l.mapX;
+    pt.y = l.mapY;
+
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return; // Can happen if hidden
+
+    const screenPt = pt.matrixTransform(ctm);
     const rect = mapPane.getBoundingClientRect();
-    const nx = (l.mapX - view.cur.x) / view.cur.w;
-    const ny = (l.mapY - view.cur.y) / view.cur.h;
-    const sx = nx * rect.width;
-    const sy = ny * rect.height;
-    l.el.style.left = `${sx}px`;
-    l.el.style.top = `${sy}px`;
+
+    l.el.style.left = (screenPt.x - rect.left) + 'px';
+    l.el.style.top = (screenPt.y - rect.top) + 'px';
   }
 
   function updateAllLabels() {
@@ -847,10 +859,10 @@
   }
 
   function svgPointFromClient(clientX, clientY) {
-    const r = svg.getBoundingClientRect();
-    const px = (clientX - r.left) / r.width;
-    const py = (clientY - r.top) / r.height;
-    return { x: view.cur.x + px * view.cur.w, y: view.cur.y + py * view.cur.h };
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
   }
 
   function zoomAt(clientX, clientY, zoomFactor) {
@@ -921,9 +933,10 @@
   function setHover(id, clientX, clientY) {
     const existingLabel = activeLabels.find(l => l.type === 'permanent');
     if (existingLabel && clientX != null) {
-      const r = mapPane.getBoundingClientRect();
-      existingLabel.el.style.left = (clientX - r.left) + 'px';
-      existingLabel.el.style.top = (clientY - r.top) + 'px';
+      const pt = svgPointFromClient(clientX, clientY);
+      existingLabel.mapX = pt.x;
+      existingLabel.mapY = pt.y;
+      updateLabelPosition(existingLabel);
     }
 
     if (id === ptr.hoveredId) return;
@@ -1061,15 +1074,20 @@
       }
 
       if (ptr.dragging) {
-        const r = svg.getBoundingClientRect();
-        const kx = ptr.startVb.w / r.width;
-        const ky = ptr.startVb.h / r.height;
-        scheduleViewBox({
-          x: ptr.startVb.x - dx * kx,
-          y: ptr.startVb.y - dy * ky,
-          w: ptr.startVb.w,
-          h: ptr.startVb.h,
-        });
+        // Drag logic using CTM for 1:1 movement
+        const ctm = svg.getScreenCTM();
+        if (ctm) {
+          // ctm.a is the X scale (pixels per unit), ctm.d is Y scale
+          // We want to move the viewBox by -dx/scale
+          // So if we move mouse 100px right, and scale is 2, we move VB 50 units left.
+
+          scheduleViewBox({
+            x: ptr.startVb.x - dx / ctm.a,
+            y: ptr.startVb.y - dy / ctm.d,
+            w: ptr.startVb.w,
+            h: ptr.startVb.h,
+          });
+        }
       }
     }
 
