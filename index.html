@@ -71,6 +71,28 @@
             </div>
         </aside>
     </div>
+    <div id="highScoreModal" class="modal-overlay">
+        <div class="modal-content">
+            <h2>Run Completed!</h2>
+            <div class="modal-stats">
+                <div class="stat-row">
+                    <span>Time:</span>
+                    <span id="modalTime" class="stat-val">00:00.0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Accuracy:</span>
+                    <span id="modalAccuracy" class="stat-val">100%</span>
+                </div>
+            </div>
+            <div class="input-group">
+                <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="20" autocomplete="off">
+            </div>
+            <div class="modal-actions">
+                <button id="cancelScoreBtn" class="btn secondary">Cancel</button>
+                <button id="submitScoreBtn" class="btn primary">Submit Score</button>
+            </div>
+        </div>
+    </div>
 
     <script src="script.js" defer></script>
 </body>

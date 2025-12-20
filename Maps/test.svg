@@ -1,0 +1,5 @@
+<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+  <path id="t1" title="Test Square" class="land" d="M100 100 H300 V300 H100 Z" />
+  <path id="t2" title="Test Triangle" class="land" d="M400 100 L600 100 L500 300 Z" />
+  <path id="t3" title="Test Circle" class="land" d="M300 400 Q400 200 500 400 T700 400 V500 H300 Z" />
+</svg>

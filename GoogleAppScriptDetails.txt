@@ -1,0 +1,5 @@
+app net adresse: 
+https://script.google.com/macros/s/AKfycbwCsA4TCK9Yq35y3BmD_pvFlYABWV1R322C67SdU9dYWfmvsxvyii_142Pysd-7QDTkwQ/exec
+
+Implementerings-ID:
+AKfycbwCsA4TCK9Yq35y3BmD_pvFlYABWV1R322C67SdU9dYWfmvsxvyii_142Pysd-7QDTkwQ

@@ -8,6 +8,11 @@
     usa: { name: "USA", file: "Maps/usaLow.svg", viewBox: "130 -20 800 800" }
   };
 
+  const DEBUG_TEST_MAP = false; // Toggle this to enable Test Map
+  if (DEBUG_TEST_MAP) {
+    MAP_SOURCES.test = { name: "TEST MAP", file: "Maps/test.svg", viewBox: "0 0 800 600" };
+  }
+
   const mapCache = new Map();
 
   // Helper to fetch and parse SVG
@@ -57,11 +62,48 @@
 
       mapCache.set(key, data);
       return data;
+
     } catch (e) {
       console.error(e);
       toast(`Error loading map: ${e.message}`, 'error');
       return null;
     }
+  }
+
+  // --- HIGHSCORE --
+  const HIGH_SCORE_URL = "https://script.google.com/macros/s/AKfycbwCsA4TCK9Yq35y3BmD_pvFlYABWV1R322C67SdU9dYWfmvsxvyii_142Pysd-7QDTkwQ/exec";
+
+  function formatScoreForUpload(ms) {
+    const totalSec = ms / 1000;
+    const m = Math.floor(totalSec / 60);
+    const s = Math.floor(totalSec % 60);
+    const msPart = Math.floor((totalSec - Math.floor(totalSec)) * 1000);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(msPart).padStart(3, '0')}`;
+  }
+
+  function sendHighScore(spillerNavn, poengSum) {
+    const data = {
+      name: spillerNavn,
+      score: poengSum // Expecting formatted string "MM:SS:mmm"
+    };
+
+    fetch(HIGH_SCORE_URL, {
+      method: "POST",
+      mode: "no-cors",
+      cache: "no-cache",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data)
+    })
+      .then(() => {
+        console.log("Poengsum lagret i Google Sheets!");
+        toast("Score Submitted!", "good");
+      })
+      .catch((error) => {
+        console.error("Feil ved lagring:", error);
+        toast("Submission Failed", "bad");
+      });
   }
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -291,7 +333,40 @@
   const mapSelectEl = $('#mapSelect');
   const mapPane = $('#mapPane');
   const labelsContainer = $('#labelsContainer');
+
   const flawlessBox = $('#flawlessBox');
+  // Modal Elements
+  const highScoreModal = $('#highScoreModal');
+  const modalTime = $('#modalTime');
+  const modalAccuracy = $('#modalAccuracy');
+  const playerNameInput = $('#playerNameInput');
+  const submitScoreBtn = $('#submitScoreBtn');
+  const cancelScoreBtn = $('#cancelScoreBtn');
+
+  // Modal Logic
+  function showHighScoreModal(finalMs, accuracyVal) {
+    modalTime.textContent = fmtTime(finalMs);
+    modalAccuracy.textContent = accuracyVal + '%';
+    highScoreModal.classList.add('show');
+    playerNameInput.value = localStorage.getItem('last_player_name') || '';
+    playerNameInput.focus();
+
+    // One-off submit handler
+    submitScoreBtn.onclick = () => {
+      const name = playerNameInput.value.trim();
+      if (!name) {
+        toast('Enter a name!', 'bad');
+        return;
+      }
+      localStorage.setItem('last_player_name', name);
+      sendHighScore(name, formatScoreForUpload(finalMs));
+      highScoreModal.classList.remove('show');
+    };
+
+    cancelScoreBtn.onclick = () => {
+      highScoreModal.classList.remove('show');
+    };
+  }
 
   let toastTimer = null;
   function toast(msg, kind = '') {
@@ -304,7 +379,7 @@
   }
 
   // --- STATE ---
-  let currentMapKey = 'europe';
+  let currentMapKey = DEBUG_TEST_MAP ? 'test' : 'europe';
   let countries = [];
   let countryById = new Map();
   // We keep track of active labels to update their position on zoom/pan
@@ -672,6 +747,7 @@
 
   function pickNextTarget() {
     if (state.remainingIds.length === 0) {
+      console.log("Game Finished! Handling Done state...");
       state.targetId = null;
 
       // Stop the game clock
@@ -700,10 +776,15 @@
         // Animate Clock
         animateClockRewind(finalTime, bonusTime, () => {
           checkHighScore(bonusTime);
+          console.log("Showing High Score Modal (Flawless)");
+          setTimeout(() => showHighScoreModal(bonusTime, accuracy), 600);
         });
       } else {
         targetEl.textContent = `DONE!\n${accuracy}% Accuracy`;
         checkHighScore(finalTime);
+        console.log("Showing High Score Modal (Normal)");
+        // Trigger immediately/shortly, don't rely only on animation callback if possible
+        setTimeout(() => showHighScoreModal(finalTime, accuracy), 400);
       }
 
       setPhase('done');
@@ -765,6 +846,7 @@
 
     clearPermanentLabels();
     flawlessBox.classList.remove('show');
+    highScoreModal.classList.remove('show'); /* Ensure modal closed on restart */
 
     state.startAt = now();
     state.elapsedMs = 0;
@@ -1174,6 +1256,10 @@
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
+      // If modal is open, do not toggle game.
+      // Also do not preventDefault if user is typing name.
+      if (highScoreModal.classList.contains('show')) return;
+
       e.preventDefault();
       toggleStartReset();
     }
@@ -1191,7 +1277,7 @@
   // Wait for the next tick to ensure MAPS is fully injected if we use replacement?
   setTimeout(() => {
     initMapSelector();
-    loadMap('europe');
+    loadMap(currentMapKey);
   }, 100);
 
 })();
