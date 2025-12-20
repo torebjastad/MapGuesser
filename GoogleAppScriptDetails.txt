@@ -3,3 +3,6 @@ https://script.google.com/macros/s/AKfycbwCsA4TCK9Yq35y3BmD_pvFlYABWV1R322C67SdU
 
 Implementerings-ID:
 AKfycbwCsA4TCK9Yq35y3BmD_pvFlYABWV1R322C67SdU9dYWfmvsxvyii_142Pysd-7QDTkwQ
+
+bibliotek
+https://script.google.com/macros/library/d/1YEalNLOXLNe9qOsgZimRn_fLBUYDGGbTPMp55x8Q9bPcTaAAlTnF_hUT/2

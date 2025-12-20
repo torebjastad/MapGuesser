@@ -193,6 +193,61 @@ body {
   letter-spacing: .2px;
 }
 
+.leaderboard-container {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, .02);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  min-height: 120px;
+  margin-top: 4px;
+  /* small gap after stats */
+}
+
+.leaderboard-content {
+  padding: 8px;
+  flex: 1;
+}
+
+.loading-text {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 10px;
+}
+
+.leaderboard-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.leaderboard-row:last-child {
+  border-bottom: none;
+}
+
+.leaderboard-row .rank {
+  width: 20px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.leaderboard-row .name {
+  flex: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 8px;
+}
+
+.leaderboard-row .score {
+  font-weight: 700;
+  color: var(--accent);
+}
+
 .listContainer {
   flex: 1;
   display: flex;

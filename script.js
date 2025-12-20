@@ -10,7 +10,7 @@
 
   const DEBUG_TEST_MAP = false; // Toggle this to enable Test Map
   if (DEBUG_TEST_MAP) {
-    MAP_SOURCES.test = { name: "TEST MAP", file: "Maps/test.svg", viewBox: "0 0 800 600" };
+    MAP_SOURCES.TEST_MAP = { name: "TEST_MAP", file: "Maps/TEST_MAP.svg", viewBox: "0 0 800 600" };
   }
 
   const mapCache = new Map();
@@ -81,10 +81,44 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(msPart).padStart(3, '0')}`;
   }
 
-  function sendHighScore(spillerNavn, poengSum) {
+  function formatLeaderboardDisplay(timeStr) {
+    if (!timeStr) return '—';
+    // Expected format: MM:SS:mmm (e.g. 02:04:379)
+    // We want to display M:SS.d (e.g. 2:04.4)
+    const parts = timeStr.split(':');
+    if (parts.length === 3) {
+      let m = parseInt(parts[0], 10);
+      let s = parseInt(parts[1], 10);
+      let ms = parseInt(parts[2], 10);
+
+      // Round to nearest 100ms (tenth of a second)
+      let d = Math.round(ms / 100);
+
+      if (d === 10) {
+        d = 0;
+        s++;
+        if (s === 60) {
+          s = 0;
+          m++;
+        }
+      }
+
+      return `${m}:${String(s).padStart(2, '0')}.${d}`;
+    }
+    return timeStr; // Fallback
+  }
+
+  function capitalize(s) {
+    if (!s) return '';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function sendHighScore(spillerNavn, poengSum, regionKey) {
+    const regionName = capitalize(regionKey);
     const data = {
       name: spillerNavn,
-      score: poengSum // Expecting formatted string "MM:SS:mmm"
+      score: poengSum, // Expecting formatted string "MM:SS:mmm"
+      sheetName: `${regionName}InData`
     };
 
     fetch(HIGH_SCORE_URL, {
@@ -99,10 +133,53 @@
       .then(() => {
         console.log("Poengsum lagret i Google Sheets!");
         toast("Score Submitted!", "good");
+        // Optimistically re-fetch after a delay to allow sheet to process
+        setTimeout(() => fetchLeaderboard(regionKey), 2000);
       })
       .catch((error) => {
         console.error("Feil ved lagring:", error);
         toast("Submission Failed", "bad");
+      });
+  }
+
+  function fetchLeaderboard(regionKey) {
+    const lbEl = $('#globalLeaderboard');
+    if (!lbEl) return;
+
+    lbEl.innerHTML = '<div class="loading-text">Loading...</div>';
+
+    const regionName = capitalize(regionKey);
+    const sheetName = `${regionName}HighScore`;
+    const url = `${HIGH_SCORE_URL}?sheetName=${sheetName}&limit=5`;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        lbEl.innerHTML = '';
+        if (!Array.isArray(data) || data.length === 0) {
+          lbEl.innerHTML = '<div class="loading-text">No scores yet</div>';
+          return;
+        }
+
+        data.forEach((row, i) => {
+          // Expecting row = [Name, Score]
+          const name = row[0] || 'Unknown';
+          const rawScore = row[1] || '';
+          const displayScore = formatLeaderboardDisplay(rawScore);
+
+          const div = document.createElement('div');
+          div.className = 'leaderboard-row';
+          div.innerHTML = `
+            <span class="rank">${i + 1}.</span>
+            <span class="name">${name}</span>
+            <span class="score">${displayScore}</span>
+          `;
+          lbEl.appendChild(div);
+        });
+      })
+      .catch(e => {
+        console.error(e);
+        lbEl.innerHTML = '<div class="loading-text">Failed to load</div>';
       });
   }
 
@@ -165,15 +242,16 @@
     scheduleViewBox({ ...view.cur });
 
     resetGame();
+    fetchLeaderboard(key);
   }
 
   function fmtTime(ms) {
     const t = Math.max(0, ms);
-    const total = t / 1000;
-    const m = Math.floor(total / 60);
-    const s = total - m * 60;
-    const ss = s.toFixed(1).padStart(4, '0');
-    return `${String(m).padStart(2, '0')}:${ss}`;
+    const totalSec = t / 1000;
+    const m = Math.floor(totalSec / 60);
+    const s = Math.floor(totalSec % 60);
+    const d = Math.floor((totalSec % 1) * 10);
+    return `${m}:${String(s).padStart(2, '0')}.${d}`;
   }
 
   function colorFor(id) {
@@ -359,7 +437,7 @@
         return;
       }
       localStorage.setItem('last_player_name', name);
-      sendHighScore(name, formatScoreForUpload(finalMs));
+      sendHighScore(name, formatScoreForUpload(finalMs), currentMapKey);
       highScoreModal.classList.remove('show');
     };
 
@@ -379,7 +457,7 @@
   }
 
   // --- STATE ---
-  let currentMapKey = DEBUG_TEST_MAP ? 'test' : 'europe';
+  let currentMapKey = DEBUG_TEST_MAP ? 'TEST_MAP' : 'europe';
   let countries = [];
   let countryById = new Map();
   // We keep track of active labels to update their position on zoom/pan
