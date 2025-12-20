@@ -13,6 +13,9 @@
     MAP_SOURCES.TEST_MAP = { name: "TEST_MAP", file: "Maps/TEST_MAP.svg", viewBox: "0 0 800 600" };
   }
 
+  // Increment this when you update map files to force reload
+  const APP_VERSION = '1';
+
   const mapCache = new Map();
 
   // Helper to fetch and parse SVG
@@ -23,7 +26,7 @@
     if (!src) return null;
 
     try {
-      const resp = await fetch(src.file);
+      const resp = await fetch(`${src.file}?v=${APP_VERSION}`);
       if (!resp.ok) throw new Error(`Failed to load ${src.file}`);
       const text = await resp.text();
 
