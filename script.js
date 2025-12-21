@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '5';
+  const APP_VERSION = '2.1';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -695,6 +695,7 @@
     state.phase = phase;
     startBtn.textContent = (phase === 'running') ? 'RESET (Space)' : 'START (Space)';
     startBtn.classList.add('primary');
+    targetEl.classList.toggle('running', phase === 'running');
   }
 
   function updateBestUI() {
@@ -1405,6 +1406,7 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
   }
 
   startBtn.addEventListener('click', toggleStartReset);
+  targetEl.addEventListener('click', toggleStartReset);
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {

@@ -407,7 +407,11 @@ body {
   backdrop-filter: blur(10px);
   box-shadow: 0 14px 40px rgba(0, 0, 0, .25);
   user-select: none;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.2s;
+
+
   max-width: min(860px, 74vw);
   white-space: pre-line;
   /* Support newlines */
@@ -415,6 +419,26 @@ body {
   text-overflow: ellipsis;
   text-align: center;
   line-height: 1.1;
+  transition: transform 0.1s ease, background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+#targetCountry:hover {
+  background: linear-gradient(180deg, #fcd34d, #b45309);
+  color: #111827;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 16px rgba(251, 191, 36, 0.35);
+}
+
+#targetCountry.running:hover {
+  background: linear-gradient(180deg, #f87171, #b91c1c);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+}
+
+#targetCountry:active {
+  transform: translateX(-50%) scale(0.95);
+  background: rgba(0, 0, 0, .40);
 }
 
 /* Flawless Bonus Box */
