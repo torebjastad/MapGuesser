@@ -1098,8 +1098,10 @@
     hoverSoundAt: 0,
     captured: false,
     // pinch state
-    lastDist: 0,
-    lastCenter: { x: 0, y: 0 },
+    // pinch state
+    startDist: 0,
+    startCenter: { x: 0, y: 0 },
+    startWorldCenter: { x: 0, y: 0 },
     rect: null,
   };
 
@@ -1224,11 +1226,19 @@
       ptr.downCountryId = getCountryIdFromEl(el);
     } else if (ptr.pointers.size === 2) {
       // Start Pinch
-      ptr.dragging = true; // Two fingers = drag/zoom, not click
-      ptr.downCountryId = null; // Cancel any potential click
-      ptr.lastDist = getPinchDist();
-      ptr.lastCenter = getPointerCenter();
-      ptr.rect = svg.getBoundingClientRect(); // Update rect for accuracy
+      ptr.dragging = true;
+      ptr.downCountryId = null;
+      ptr.startDist = getPinchDist();
+      ptr.startCenter = getPointerCenter();
+      ptr.startVb = { ...view.cur }; // Capture baseline viewbox
+      ptr.rect = svg.getBoundingClientRect();
+
+      // Calculate the specific map point under the pinch center
+      const ctm = getRobustCTM(ptr.startVb, ptr.rect);
+      ptr.startWorldCenter = {
+        x: (ptr.startCenter.x - ctm.tx) / ctm.scale,
+        y: (ptr.startCenter.y - ctm.ty) / ctm.scale
+      };
     }
   });
 
@@ -1245,52 +1255,51 @@
       const dist = getPinchDist();
       const center = getPointerCenter();
 
-      if (dist > 5 && ptr.lastDist > 5) {
-        let scaleChange = dist / ptr.lastDist;
+      if (dist > 5 && ptr.startDist > 5) {
+        let totalScale = dist / ptr.startDist;
 
-        // Deadzone
-        let isDeadzone = false;
-        if (Math.abs(scaleChange - 1) < 0.02) {
-          scaleChange = 1;
-          isDeadzone = true;
-        }
+        // 1. Calculate Target Dimensions based on START ViewBox
+        const startW = ptr.startVb.w;
+        const startH = ptr.startVb.h;
 
-        const rect = ptr.rect;
-        // Get CTM for current state where fingers are physically located
-        const ctm = getRobustCTM(view.cur, rect);
+        const newW = clamp(startW / totalScale, view.base.w / view.maxScale, view.base.w / view.minScale);
+        const newH = clamp(startH / totalScale, view.base.h / view.maxScale, view.base.h / view.minScale);
 
-        // World Point under the logical center of fingers
-        const Px = (ptr.lastCenter.x - ctm.tx) / ctm.scale;
-        const Py = (ptr.lastCenter.y - ctm.ty) / ctm.scale;
+        // 2. Pan Compensation (Anchor Point Logic)
+        // We want ptr.startWorldCenter to be at `center` (current screen pos) in the NEW viewbox.
 
-        // Calculate Target Dimensions
-        const newW = clamp(view.cur.w / scaleChange, view.base.w / view.maxScale, view.base.w / view.minScale);
-        const newH = clamp(view.cur.h / scaleChange, view.base.h / view.maxScale, view.base.h / view.minScale);
+        // Let's solve for the new ViewBox TopLeft (nx, ny).
+        // ScreenPos = (WorldPos - nx) * scale + tx + rectOffset... 
+        // Using getRobustCTM logic simplied:
+        // ScreenX = (WorldX - nx) * s + rect.left + (centeringOffset)
 
-        // Calculate where the world point Px/Py should end up on screen
-        // We want Px,Py to be at `center` (new screen position) in the NEW viewbox
+        // We can't use getRobustCTM directly to solve properly because `centeringOffset` depends on `nx`? 
+        // No, `centeringOffset` depends on `s` and `rect` and `newW/H`. It does NOT depend on `nx` (viewbox x). 
+        // ViewBox X is purely translation.
 
-        // Simulate effective CTM for the new viewbox (assuming x=0, y=0 to get valid scale/offsets)
-        // Note: We need real offsets, but offsets depend on viewbox x/y? 
-        // No, in 'meet' logic, offsets depend on w/h vs rect w/h. x/y is just translation.
-        const nextVB = { x: 0, y: 0, w: newW, h: newH };
-        const nextCTM = getRobustCTM(nextVB, rect);
+        // So, let's calculate the properties of the NEW viewbox (Scale & Offsets) assuming x=0
+        const dummyVB = { x: 0, y: 0, w: newW, h: newH };
+        const nextCTM = getRobustCTM(dummyVB, rect); // Returns { scale, tx, ty } where tx/ty includes centering offset
 
-        // Equation: center.x = (Px - nextX) * nextCTM.scale + nextCTM.tx
-        // Solving for nextX:
-        // center.x - nextCTM.tx = (Px - nextX) * nextCTM.scale
-        // (center.x - nextCTM.tx) / nextCTM.scale = Px - nextX
-        // nextX = Px - (center.x - nextCTM.tx) / nextCTM.scale
+        // We want: center.x = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx + (RealTranslationX)
+        // Wait, getRobustCTM definition:
+        // tx = -vb.x * scale + offset + rect.left
+        // So nextCTM.tx (from dummy) = 0 + offset + rect.left
 
-        const nextX = Px - (center.x - nextCTM.tx) / nextCTM.scale;
-        const nextY = Py - (center.y - nextCTM.ty) / nextCTM.scale;
+        // So: center.x = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx - (nx * nextCTM.scale)
+        // solving for nx:
+        // nx * nextCTM.scale = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx - center.x
+        // nx = ptr.startWorldCenter.x + (nextCTM.tx - center.x) / nextCTM.scale
+
+        const nextX = ptr.startWorldCenter.x + (nextCTM.tx - center.x) / nextCTM.scale;
+        const nextY = ptr.startWorldCenter.y + (nextCTM.ty - center.y) / nextCTM.scale;
 
         if (debugEl) {
-          debugEl.textContent = `2-Fingers
-Dist: ${dist.toFixed(1)}
-ScaleChange: ${scaleChange.toFixed(4)} ${isDeadzone ? '(DZ)' : ''}
-CTM: ${ctm.scale.toFixed(4)}
-dx: ${(center.x - ptr.lastCenter.x).toFixed(1)} dy: ${(center.y - ptr.lastCenter.y).toFixed(1)}`;
+          debugEl.textContent = `2-Fingers (ABS)
+Dist: ${dist.toFixed(1)} / Start: ${ptr.startDist.toFixed(1)}
+Scale: ${totalScale.toFixed(4)} ${isDeadzone ? '(DZ)' : ''}
+StartWorld: ${ptr.startWorldCenter.x.toFixed(1)}, ${ptr.startWorldCenter.y.toFixed(1)}
+NextVB: ${nextX.toFixed(1)}, ${nextY.toFixed(1)} ${newW.toFixed(1)}x${newH.toFixed(1)}`;
         }
 
         scheduleViewBox({
@@ -1299,12 +1308,9 @@ dx: ${(center.x - ptr.lastCenter.x).toFixed(1)} dy: ${(center.y - ptr.lastCenter
           w: newW,
           h: newH
         });
-
-        ptr.lastDist = dist;
-        ptr.lastCenter = center;
       }
     } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
-      // Single pointer drag/pan
+      // Single pointer drag/pan (Absolute)
       if (!ptr.dragging && (Math.abs(e.clientX - ptr.startX) > 5 || Math.abs(e.clientY - ptr.startY) > 5)) {
         ptr.dragging = true;
       }
@@ -1314,16 +1320,14 @@ dx: ${(center.x - ptr.lastCenter.x).toFixed(1)} dy: ${(center.y - ptr.lastCenter
         const dx = e.clientX - ptr.startX;
         const dy = e.clientY - ptr.startY;
 
-        // Use Start CTM to maintain 1:1 lock with cursor relative to start
         const startCTM = getRobustCTM(ptr.startVb, rect);
 
         const dWx = dx / startCTM.scale;
         const dWy = dy / startCTM.scale;
 
         if (debugEl) {
-          debugEl.textContent = `1-Finger
+          debugEl.textContent = `1-Finger (ABS)
 dx: ${dx.toFixed(1)} dy: ${dy.toFixed(1)}
-CTM: ${startCTM.scale.toFixed(4)}
 dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
         }
 
