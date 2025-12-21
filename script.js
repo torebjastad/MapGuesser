@@ -8,7 +8,7 @@
     usa: { name: "USA", file: "Maps/usaLow.svg", viewBox: "130 -20 800 800" }
   };
 
-  const DEBUG_TEST_MAP = false; // Toggle this to enable Test Map
+  const DEBUG_TEST_MAP = true; // Toggle this to enable Test Map
   if (DEBUG_TEST_MAP) {
     MAP_SOURCES.TEST_MAP = { name: "TEST_MAP", file: "Maps/TEST_MAP.svg", viewBox: "0 0 800 600" };
   }
@@ -841,7 +841,7 @@
       let finalTime = state.elapsedMs;
 
       if (flawless) {
-        targetEl.textContent = `DONE!\n${accuracy}% Accuracy`;
+        targetEl.textContent = `DONE! ${accuracy}% Accuracy`;
         flawlessBox.classList.add('show');
 
         // Bonus Calc
@@ -854,6 +854,11 @@
 
         fanfare();
 
+        // Remove Flawless Box after 4 seconds
+        setTimeout(() => {
+          flawlessBox.classList.remove('show');
+        }, 4000);
+
         // Animate Clock
         animateClockRewind(finalTime, bonusTime, () => {
           checkHighScore(bonusTime);
@@ -861,7 +866,7 @@
           setTimeout(() => showHighScoreModal(bonusTime, accuracy), 600);
         });
       } else {
-        targetEl.textContent = `DONE!\n${accuracy}% Accuracy`;
+        targetEl.textContent = `DONE! ${accuracy}% Accuracy`;
         checkHighScore(finalTime);
         console.log("Showing High Score Modal (Normal)");
         // Trigger immediately/shortly, don't rely only on animation callback if possible
