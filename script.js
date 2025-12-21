@@ -1386,6 +1386,12 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
     }
 
     if (!ptr.down || !ptr.dragging) {
+      // Disable hover on touch devices (user request)
+      if (e.pointerType === 'touch') {
+        clearHover();
+        return;
+      }
+
       const el = elementUnderPointer(e.clientX, e.clientY);
       const hid = getCountryIdFromEl(el);
       if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
