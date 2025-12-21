@@ -14,10 +14,11 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.1';
+  const APP_VERSION = '2.3';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
+
 
   // Helper to fetch and parse SVG
   async function fetchMapData(key) {
@@ -362,6 +363,19 @@
   const ctx = confettiCanvas.getContext('2d');
   let confettiParticles = [];
   let confettiRaf = 0;
+
+  // DEBUG LOGGING
+  const debugEl = document.getElementById('debugParams');
+  if (DEBUG_TOUCH && debugEl) debugEl.style.display = 'block';
+
+  function logDebug(msg) {
+    if (!DEBUG_TOUCH || !debugEl) return;
+    const lines = debugEl.textContent.split('\n');
+    lines.push(`${now().toFixed(0)}: ${msg}`);
+    if (lines.length > 8) lines.shift();
+    debugEl.textContent = lines.join('\n');
+    console.log(msg);
+  }
 
   function resizeConfetti() {
     confettiCanvas.width = confettiCanvas.offsetWidth;
@@ -940,6 +954,7 @@
     state.mistakes = 0;
     state.correct = 0;
     state.found = [];
+    state.lastGuessedId = null;
     state.isFullRun = false;
 
     loadBestTime();
@@ -1002,9 +1017,27 @@
 
     const clicked = countryById.get(clickedId);
     if (!clicked || !clicked.enabled) return;
-    if (clicked.guessed) return;
+
+    // Filter out bounces/echoes: Impossible to react in < 250ms
+    if (now() - state.targetPickTime < 250) {
+      logDebug(`Ignored: Debounce (${now() - state.targetPickTime | 0}ms)`);
+      return;
+    }
+
+    // Strict double-tap prevention
+    if (clickedId === state.lastGuessedId) {
+      logDebug(`Ignored: Duplicate ID ${clickedId}`);
+      return;
+    }
+
+    if (clicked.guessed) {
+      logDebug(`Ignored: Already Guessed`);
+      return;
+    }
 
     if (clickedId === state.targetId) {
+      logDebug(`CORRECT!`);
+      state.lastGuessedId = clickedId;
       clicked.guessed = true;
       clicked.el.classList.add('guessed');
       clicked.el.style.setProperty('--c', colorFor(clickedId));
