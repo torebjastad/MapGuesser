@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '3';
+  const APP_VERSION = '4';
 
   const mapCache = new Map();
 
@@ -1258,6 +1258,15 @@
       if (dist > 5 && ptr.startDist > 5) {
         let totalScale = dist / ptr.startDist;
 
+        // Deadzone (applied to total scale to prevent jitter near 1.0)
+        let isDeadzone = false;
+        if (Math.abs(totalScale - 1) < 0.05) { // 5% deadzone
+          totalScale = 1;
+          isDeadzone = true;
+        }
+
+        const rect = ptr.rect;
+
         // 1. Calculate Target Dimensions based on START ViewBox
         const startW = ptr.startVb.w;
         const startH = ptr.startVb.h;
@@ -1266,33 +1275,17 @@
         const newH = clamp(startH / totalScale, view.base.h / view.maxScale, view.base.h / view.minScale);
 
         // 2. Pan Compensation (Anchor Point Logic)
-        // We want ptr.startWorldCenter to be at `center` (current screen pos) in the NEW viewbox.
-
-        // Let's solve for the new ViewBox TopLeft (nx, ny).
-        // ScreenPos = (WorldPos - nx) * scale + tx + rectOffset... 
-        // Using getRobustCTM logic simplied:
-        // ScreenX = (WorldX - nx) * s + rect.left + (centeringOffset)
-
-        // We can't use getRobustCTM directly to solve properly because `centeringOffset` depends on `nx`? 
-        // No, `centeringOffset` depends on `s` and `rect` and `newW/H`. It does NOT depend on `nx` (viewbox x). 
-        // ViewBox X is purely translation.
-
-        // So, let's calculate the properties of the NEW viewbox (Scale & Offsets) assuming x=0
         const dummyVB = { x: 0, y: 0, w: newW, h: newH };
-        const nextCTM = getRobustCTM(dummyVB, rect); // Returns { scale, tx, ty } where tx/ty includes centering offset
-
-        // We want: center.x = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx + (RealTranslationX)
-        // Wait, getRobustCTM definition:
-        // tx = -vb.x * scale + offset + rect.left
-        // So nextCTM.tx (from dummy) = 0 + offset + rect.left
-
-        // So: center.x = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx - (nx * nextCTM.scale)
-        // solving for nx:
-        // nx * nextCTM.scale = (ptr.startWorldCenter.x * nextCTM.scale) + nextCTM.tx - center.x
-        // nx = ptr.startWorldCenter.x + (nextCTM.tx - center.x) / nextCTM.scale
+        const nextCTM = getRobustCTM(dummyVB, rect);
 
         const nextX = ptr.startWorldCenter.x + (nextCTM.tx - center.x) / nextCTM.scale;
         const nextY = ptr.startWorldCenter.y + (nextCTM.ty - center.y) / nextCTM.scale;
+
+        // Check for NaN
+        if (isNaN(nextX) || isNaN(nextY)) {
+          if (debugEl) debugEl.textContent = `NaN Error: ctm.scale=${nextCTM.scale} sWC=${ptr.startWorldCenter.x}`;
+          return;
+        }
 
         if (debugEl) {
           debugEl.textContent = `2-Fingers (ABS)
@@ -1308,6 +1301,14 @@ NextVB: ${nextX.toFixed(1)}, ${nextY.toFixed(1)} ${newW.toFixed(1)}x${newH.toFix
           w: newW,
           h: newH
         });
+      } else {
+        // Debug why we are skipping
+        if (debugEl) {
+          debugEl.textContent = `2-Fingers SKIP
+Dist: ${dist.toFixed(1)}
+StartDist: ${ptr.startDist.toFixed(1)}
+Reason: ${dist <= 5 ? 'Dist too small' : 'StartDist too small'}`;
+        }
       }
     } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
       // Single pointer drag/pan (Absolute)
