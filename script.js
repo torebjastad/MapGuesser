@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2';
+  const APP_VERSION = '3';
 
   const mapCache = new Map();
 
@@ -1237,6 +1237,9 @@
       ptr.pointers.set(e.pointerId, e);
     }
 
+    // DEBUG OVERLAY
+    const debugEl = document.getElementById('debugParams');
+
     if (ptr.pointers.size === 2) {
       // 2-Finger Pan + Zoom
       const dist = getPinchDist();
@@ -1246,7 +1249,11 @@
         let scaleChange = dist / ptr.lastDist;
 
         // Deadzone
-        if (Math.abs(scaleChange - 1) < 0.02) scaleChange = 1;
+        let isDeadzone = false;
+        if (Math.abs(scaleChange - 1) < 0.02) {
+          scaleChange = 1;
+          isDeadzone = true;
+        }
 
         const rect = ptr.rect;
         // Get CTM for current state where fingers are physically located
@@ -1278,6 +1285,14 @@
         const nextX = Px - (center.x - nextCTM.tx) / nextCTM.scale;
         const nextY = Py - (center.y - nextCTM.ty) / nextCTM.scale;
 
+        if (debugEl) {
+          debugEl.textContent = `2-Fingers
+Dist: ${dist.toFixed(1)}
+ScaleChange: ${scaleChange.toFixed(4)} ${isDeadzone ? '(DZ)' : ''}
+CTM: ${ctm.scale.toFixed(4)}
+dx: ${(center.x - ptr.lastCenter.x).toFixed(1)} dy: ${(center.y - ptr.lastCenter.y).toFixed(1)}`;
+        }
+
         scheduleViewBox({
           x: nextX,
           y: nextY,
@@ -1304,6 +1319,13 @@
 
         const dWx = dx / startCTM.scale;
         const dWy = dy / startCTM.scale;
+
+        if (debugEl) {
+          debugEl.textContent = `1-Finger
+dx: ${dx.toFixed(1)} dy: ${dy.toFixed(1)}
+CTM: ${startCTM.scale.toFixed(4)}
+dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
+        }
 
         scheduleViewBox({
           x: ptr.startVb.x - dWx,
