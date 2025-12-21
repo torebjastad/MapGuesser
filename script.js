@@ -116,6 +116,16 @@
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
+  function parseScoreToMs(timeStr) {
+    if (!timeStr) return Infinity;
+    const parts = timeStr.split(':');
+    if (parts.length !== 3) return Infinity;
+    const m = parseInt(parts[0], 10);
+    const s = parseInt(parts[1], 10);
+    const ms = parseInt(parts[2], 10);
+    return (m * 60 + s) * 1000 + ms;
+  }
+
   function sendHighScore(spillerNavn, poengSum, regionKey) {
     const regionName = capitalize(regionKey);
     const data = {
@@ -153,7 +163,7 @@
 
     const regionName = capitalize(regionKey);
     const sheetName = `${regionName}HighScore`;
-    const url = `${HIGH_SCORE_URL}?sheetName=${sheetName}&limit=5`;
+    const url = `${HIGH_SCORE_URL}?sheetName=${sheetName}&limit=10`;
 
     fetch(url)
       .then(res => res.json())
@@ -162,6 +172,15 @@
         if (!Array.isArray(data) || data.length === 0) {
           lbEl.innerHTML = '<div class="loading-text">No scores yet</div>';
           return;
+        }
+
+
+        // Calculate Cutoff (10th place or Infinity if < 10)
+        if (data.length >= 10) {
+          const lastRow = data[data.length - 1]; // [Name, Score]
+          state.leaderboardCutoff = parseScoreToMs(lastRow[1]);
+        } else {
+          state.leaderboardCutoff = Infinity;
         }
 
         data.forEach((row, i) => {
@@ -479,6 +498,7 @@
     found: [],
     bestMs: null,
     isFullRun: true,
+    leaderboardCutoff: Infinity, // Time to beat (ms)
   };
 
   // --- LABELS SYSTEM ---
@@ -862,15 +882,29 @@
         // Animate Clock
         animateClockRewind(finalTime, bonusTime, () => {
           checkHighScore(bonusTime);
-          console.log("Showing High Score Modal (Flawless)");
-          setTimeout(() => showHighScoreModal(bonusTime, accuracy), 600);
+
+          if (state.isFullRun && bonusTime < state.leaderboardCutoff) {
+            console.log("Qualifies for Top 10! (Flawless)");
+            highScoreModal.querySelector('h2').textContent = "Congrats! You made it to the global top 10!!";
+            setTimeout(() => showHighScoreModal(bonusTime, accuracy), 600);
+          } else {
+            console.log("Did not qualify for Top 10 (Flawless)");
+            toast('Flawless Run Complete!', 'good');
+          }
         });
       } else {
         targetEl.textContent = `DONE! ${accuracy}% Accuracy`;
         checkHighScore(finalTime);
-        console.log("Showing High Score Modal (Normal)");
-        // Trigger immediately/shortly, don't rely only on animation callback if possible
-        setTimeout(() => showHighScoreModal(finalTime, accuracy), 400);
+        // Only show modal if we qualify for top 10 (or leaderboard is not full)
+        if (state.isFullRun && finalTime < state.leaderboardCutoff) {
+          console.log("Qualifies for Top 10!");
+          // Update Modal Title
+          highScoreModal.querySelector('h2').textContent = "Congrats! You made it to the global top 10!!";
+          setTimeout(() => showHighScoreModal(finalTime, accuracy), 400);
+        } else {
+          console.log("Did not qualify for Top 10");
+          toast('Run Complete!', 'good');
+        }
       }
 
       setPhase('done');
