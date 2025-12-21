@@ -1261,16 +1261,17 @@
 
       if (ptr.dragging) {
         // Drag logic
-        // Use cached rect for simpler math or getScreenCTM
-        const rect = ptr.rect; // Use cached rect
-        // dx in pixels.
-        // scaleX = view.cur.w / rect.width
-        const scaleX = ptr.startVb.w / rect.width;
-        const scaleY = ptr.startVb.h / rect.height;
+        // We use Math.max because SVG "meet" aspect ratio logic fits by the smaller dimension ratio,
+        // leaving the other dimension with empty space.
+        // The scale factor (VB units per pixel) is determined by the "tight" dimension.
+        const rect = ptr.rect;
+        const sX = ptr.startVb.w / rect.width;
+        const sY = ptr.startVb.h / rect.height;
+        const scale = Math.max(sX, sY);
 
         scheduleViewBox({
-          x: ptr.startVb.x - dx * scaleX,
-          y: ptr.startVb.y - dy * scaleY,
+          x: ptr.startVb.x - dx * scale,
+          y: ptr.startVb.y - dy * scale,
           w: ptr.startVb.w,
           h: ptr.startVb.h,
         });
