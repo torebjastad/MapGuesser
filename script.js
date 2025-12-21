@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.3';
+  const APP_VERSION = '2.4';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -1453,15 +1453,20 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
   }, { passive: false });
 
   // Init
-  // We'll call these after map data is guaranteed to be loaded if logic separated
-  // But here we rely on the object being populated before this IIFE finishes?
-  // No, we should call init at end of file.
+  // Welcome Modal Logic
+  const welcomeModal = document.getElementById('welcomeModal');
+  const closeWelcomeBtn = document.getElementById('closeWelcomeBtn');
 
-  // Expose init function if needed, or just run it:
-  // We will assume MAPS is populated by the time we run this.
-  // Actually, since we're writing MAPS here, we can run it.
+  if (welcomeModal && closeWelcomeBtn) {
+    // Show on load
+    setTimeout(() => welcomeModal.classList.add('show'), 500);
 
-  // Wait for the next tick to ensure MAPS is fully injected if we use replacement?
+    closeWelcomeBtn.addEventListener('click', () => {
+      unlockAudio(); // Good opportunity to unlock audio context
+      welcomeModal.classList.remove('show');
+    });
+  }
+
   setTimeout(() => {
     initMapSelector();
     loadMap(currentMapKey);
