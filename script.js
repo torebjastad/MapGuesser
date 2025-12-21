@@ -14,7 +14,8 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '4';
+  const APP_VERSION = '5';
+  const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
 
@@ -1311,7 +1312,16 @@ Reason: ${dist <= 5 ? 'Dist too small' : 'StartDist too small'}`;
         }
       }
     } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
-      // Single pointer drag/pan (Absolute)
+      /*
+       * 1-FINGER DRAG: ABSOLUTE TRACKING
+       * 
+       * Similar to 2-finger, we "lock" the map relative to the start position to prevent drift.
+       * 1. On Start: Record startX, startY, startViewBox.
+       * 2. On Move: 
+       *    - Calculate screen delta (current - start).
+       *    - Convert screen delta to World Units using the SCALE at the START of the drag.
+       *    - Subtract this world delta from the startViewBox.
+       */
       if (!ptr.dragging && (Math.abs(e.clientX - ptr.startX) > 5 || Math.abs(e.clientY - ptr.startY) > 5)) {
         ptr.dragging = true;
       }
@@ -1326,7 +1336,7 @@ Reason: ${dist <= 5 ? 'Dist too small' : 'StartDist too small'}`;
         const dWx = dx / startCTM.scale;
         const dWy = dy / startCTM.scale;
 
-        if (debugEl) {
+        if (DEBUG_TOUCH && debugEl) {
           debugEl.textContent = `1-Finger (ABS)
 dx: ${dx.toFixed(1)} dy: ${dy.toFixed(1)}
 dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
