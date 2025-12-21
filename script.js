@@ -1393,22 +1393,7 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
       }
     }
 
-    // Hover / Explore Logic
-    let allowHover = false;
-    if (e.pointerType === 'touch') {
-      // Touch: Only explore if NOT running
-      // Allow during drag/down so user can 'scrub' the map
-      if (state.phase !== 'running') {
-        allowHover = true;
-      } else {
-        clearHover();
-      }
-    } else {
-      // Mouse: Hover if not dragging/down
-      if (!ptr.down && !ptr.dragging) allowHover = true;
-    }
-
-    if (allowHover) {
+    if (!ptr.down || !ptr.dragging) {
       const el = elementUnderPointer(e.clientX, e.clientY);
       const hid = getCountryIdFromEl(el);
       if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
