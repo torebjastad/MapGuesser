@@ -1247,7 +1247,15 @@
     ptr.pointers.set(e.pointerId, e);
     try { svg.setPointerCapture(e.pointerId); } catch (_) { }
 
+
     if (ptr.pointers.size === 1) {
+      // If touch explore is allowed (not running), trigger hover immediately
+      if (e.pointerType === 'touch' && state.phase !== 'running') {
+        const el = elementUnderPointer(e.clientX, e.clientY);
+        const hid = getCountryIdFromEl(el);
+        if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
+      }
+
       // Primary interaction
       ptr.down = true;
       ptr.id = e.pointerId; // main pointer logic for drag
@@ -1385,13 +1393,22 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
       }
     }
 
-    if (!ptr.down || !ptr.dragging) {
-      // Disable hover on touch devices (user request)
-      if (e.pointerType === 'touch') {
+    // Hover / Explore Logic
+    let allowHover = false;
+    if (e.pointerType === 'touch') {
+      // Touch: Only explore if NOT running
+      // Allow during drag/down so user can 'scrub' the map
+      if (state.phase !== 'running') {
+        allowHover = true;
+      } else {
         clearHover();
-        return;
       }
+    } else {
+      // Mouse: Hover if not dragging/down
+      if (!ptr.down && !ptr.dragging) allowHover = true;
+    }
 
+    if (allowHover) {
       const el = elementUnderPointer(e.clientX, e.clientY);
       const hid = getCountryIdFromEl(el);
       if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
@@ -1413,6 +1430,7 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
       ptr.dragging = false;
       ptr.downCountryId = null;
       ptr.id = null;
+      if (e.pointerType === 'touch') clearHover(); // Clear label on lift
     } else if (ptr.pointers.size === 1) {
       // One finger remains, maybe switch to panning?
       // Usually safer to just reset drag state to avoid jumps
