@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.4';
+  const APP_VERSION = '2.5';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -1465,8 +1465,11 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
   // Welcome Modal Logic
   const welcomeModal = document.getElementById('welcomeModal');
   const closeWelcomeBtn = document.getElementById('closeWelcomeBtn');
+  const versionDisplay = document.getElementById('versionDisplay');
 
   if (welcomeModal && closeWelcomeBtn) {
+    if (versionDisplay) versionDisplay.textContent = `v${APP_VERSION}`;
+
     // Show on load
     setTimeout(() => welcomeModal.classList.add('show'), 500);
 
