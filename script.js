@@ -1164,6 +1164,31 @@
     }
   }
 
+  // Calculate accurate CTM manually to avoid DOM read lag
+  function getRobustCTM(vb, rect) {
+    const sX = rect.width / vb.w;
+    const sY = rect.height / vb.h;
+    const scale = Math.min(sX, sY);
+
+    let tx = -vb.x * scale;
+    let ty = -vb.y * scale;
+
+    // Centering (meet logic)
+    if (sX < sY) {
+      // Width constrained - centered vertically
+      const hReal = vb.h * scale;
+      ty += (rect.height - hReal) / 2;
+    } else {
+      // Height constrained - centered horizontally
+      const wReal = vb.w * scale;
+      tx += (rect.width - wReal) / 2;
+    }
+    tx += rect.left;
+    ty += rect.top;
+
+    return { scale, tx, ty };
+  }
+
   function elementUnderPointer(clientX, clientY) {
     return document.elementFromPoint(clientX, clientY);
   }
@@ -1220,71 +1245,38 @@
       if (dist > 5 && ptr.lastDist > 5) {
         let scaleChange = dist / ptr.lastDist;
 
-        // Deadzone for zoom to allow pure panning
-        if (Math.abs(scaleChange - 1) < 0.02) {
-          scaleChange = 1;
-        }
+        // Deadzone
+        if (Math.abs(scaleChange - 1) < 0.02) scaleChange = 1;
 
         const rect = ptr.rect;
+        // Get CTM for current state where fingers are physically located
+        const ctm = getRobustCTM(view.cur, rect);
 
-        // Uniform scale factor for screen -> ViewBox units
-        // SVG "meet" preserves aspect ratio by fitting the smaller dimension
-        const sX = view.cur.w / rect.width;
-        const sY = view.cur.h / rect.height;
-        const unitsPerPx = Math.max(sX, sY);
+        // World Point under the logical center of fingers
+        const Px = (ptr.lastCenter.x - ctm.tx) / ctm.scale;
+        const Py = (ptr.lastCenter.y - ctm.ty) / ctm.scale;
 
-        // 1. Calculate new Zoom (centered on screen midpoint)
-        // New Dimension = Old Dimension / scaleChange
+        // Calculate Target Dimensions
         const newW = clamp(view.cur.w / scaleChange, view.base.w / view.maxScale, view.base.w / view.minScale);
         const newH = clamp(view.cur.h / scaleChange, view.base.h / view.maxScale, view.base.h / view.minScale);
 
-        // 2. Pan Compensation
-        // We need to move the point P (under the finger center) to the NEW center.
-        // But since we are doing relative frame-by-frame, we essentially just shift by delta.
-        // However, we also zoomed around 'center'.
+        // Calculate where the world point Px/Py should end up on screen
+        // We want Px,Py to be at `center` (new screen position) in the NEW viewbox
 
-        // Let's do it simpler for frame-by-frame:
-        // A. Apply Zoom around `ptr.lastCenter` (which is where we were). 
-        //    Actually `center` is where we are NOW. `ptr.lastCenter` is where we were.
-        //    Usually: 
-        //      Step 1: Pan (move lastCenter to center) by shifting Viewbox.
-        //      Step 2: Zoom around center.
+        // Simulate effective CTM for the new viewbox (assuming x=0, y=0 to get valid scale/offsets)
+        // Note: We need real offsets, but offsets depend on viewbox x/y? 
+        // No, in 'meet' logic, offsets depend on w/h vs rect w/h. x/y is just translation.
+        const nextVB = { x: 0, y: 0, w: newW, h: newH };
+        const nextCTM = getRobustCTM(nextVB, rect);
 
-        // Shift due to finger movement (Panning)
-        const dx = center.x - ptr.lastCenter.x;
-        const dy = center.y - ptr.lastCenter.y;
+        // Equation: center.x = (Px - nextX) * nextCTM.scale + nextCTM.tx
+        // Solving for nextX:
+        // center.x - nextCTM.tx = (Px - nextX) * nextCTM.scale
+        // (center.x - nextCTM.tx) / nextCTM.scale = Px - nextX
+        // nextX = Px - (center.x - nextCTM.tx) / nextCTM.scale
 
-        // Current top-left
-        let nextX = view.cur.x;
-        let nextY = view.cur.y;
-
-        // Apply Pan (Inverse direction of finger drag)
-        nextX -= dx * unitsPerPx;
-        nextY -= dy * unitsPerPx;
-
-        // Apply Zoom around the new center pointer
-        // World coordinates of the center pointer in the PANNED viewbox
-        // Note: unitsPerPx is based on CURRENT viewbox width, but if we change Width, unitsPerPx changes relative to base.
-        // Using view.cur is safe for the *start* of the frame.
-
-        // To zoom around `center` (screen px):
-        // WorldPoint P = TopLeft + (center - rectTopLeft) * unitsPerPx
-        // NewTopLeft = P - (center - rectTopLeft) * newUnitsPerPx
-
-        const centerRelX = (center.x - rect.left);
-        const centerRelY = (center.y - rect.top);
-
-        // Point in world under the cursor (using current scale)
-        const Px = nextX + centerRelX * unitsPerPx;
-        const Py = nextY + centerRelY * unitsPerPx;
-
-        // Now we calculate what the top-left SHOUL be if the width changed to newW
-        // newUnitsPerPx approx = newW / rect.width (assuming width is limiting factor, or max logic)
-        // If we use the same Aspect Ratio logic:
-        const nextUnitsPerPx = Math.max(newW / rect.width, newH / rect.height);
-
-        nextX = Px - centerRelX * nextUnitsPerPx;
-        nextY = Py - centerRelY * nextUnitsPerPx;
+        const nextX = Px - (center.x - nextCTM.tx) / nextCTM.scale;
+        const nextY = Py - (center.y - nextCTM.ty) / nextCTM.scale;
 
         scheduleViewBox({
           x: nextX,
@@ -1298,28 +1290,26 @@
       }
     } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
       // Single pointer drag/pan
-      const dx = e.clientX - ptr.startX;
-      const dy = e.clientY - ptr.startY;
-
-      if (!ptr.dragging && (dx * dx + dy * dy) > 25) {
+      if (!ptr.dragging && (Math.abs(e.clientX - ptr.startX) > 5 || Math.abs(e.clientY - ptr.startY) > 5)) {
         ptr.dragging = true;
       }
 
       if (ptr.dragging) {
-        // Drag logic
-        // We use Math.max because SVG "meet" aspect ratio logic fits by the smaller dimension ratio,
-        // leaving the other dimension with empty space.
-        // The scale factor (VB units per pixel) is determined by the "tight" dimension.
         const rect = ptr.rect;
-        const sX = ptr.startVb.w / rect.width;
-        const sY = ptr.startVb.h / rect.height;
-        const scale = Math.max(sX, sY);
+        const dx = e.clientX - ptr.startX;
+        const dy = e.clientY - ptr.startY;
+
+        // Use Start CTM to maintain 1:1 lock with cursor relative to start
+        const startCTM = getRobustCTM(ptr.startVb, rect);
+
+        const dWx = dx / startCTM.scale;
+        const dWy = dy / startCTM.scale;
 
         scheduleViewBox({
-          x: ptr.startVb.x - dx * scale,
-          y: ptr.startVb.y - dy * scale,
+          x: ptr.startVb.x - dWx,
+          y: ptr.startVb.y - dWy,
           w: ptr.startVb.w,
-          h: ptr.startVb.h,
+          h: ptr.startVb.h
         });
       }
     }
