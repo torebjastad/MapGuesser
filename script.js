@@ -8,13 +8,13 @@
     usa: { name: "USA", file: "Maps/usaLow.svg", viewBox: "130 -20 800 800" }
   };
 
-  const DEBUG_TEST_MAP = true; // Toggle this to enable Test Map
+  const DEBUG_TEST_MAP = false; // Toggle this to enable Test Map
   if (DEBUG_TEST_MAP) {
     MAP_SOURCES.TEST_MAP = { name: "TEST_MAP", file: "Maps/TEST_MAP.svg", viewBox: "0 0 800 600" };
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '1';
+  const APP_VERSION = '2';
 
   const mapCache = new Map();
 
@@ -1040,7 +1040,7 @@
   const view = {
     base: { x: 0, y: 0, w: 900, h: 800 },
     cur: null,
-    minScale: 0.9,
+    minScale: 0.5,
     maxScale: 18,
     pending: null,
     raf: 0,
@@ -1098,10 +1098,9 @@
     hoverSoundAt: 0,
     captured: false,
     // pinch state
-    initDist: 0,
-    initVbW: 0,
-    initVbH: 0,
-    initCenter: { x: 0, y: 0 }
+    lastDist: 0,
+    lastCenter: { x: 0, y: 0 },
+    rect: null,
   };
 
   function getPointerCenter() {
@@ -1194,6 +1193,7 @@
       ptr.startX = e.clientX;
       ptr.startY = e.clientY;
       ptr.startVb = { ...view.cur };
+      ptr.rect = svg.getBoundingClientRect();
 
       const el = elementUnderPointer(e.clientX, e.clientY);
       ptr.downCountryId = getCountryIdFromEl(el);
@@ -1201,11 +1201,9 @@
       // Start Pinch
       ptr.dragging = true; // Two fingers = drag/zoom, not click
       ptr.downCountryId = null; // Cancel any potential click
-      ptr.initDist = getPinchDist();
-      ptr.initVbW = view.cur.w;
-      ptr.initCenter = getPointerCenter();
-      // Recalculate start viewbox relative to center?
-      // Actually simplest is just to base pinch logic on current
+      ptr.lastDist = getPinchDist();
+      ptr.lastCenter = getPointerCenter();
+      ptr.rect = svg.getBoundingClientRect(); // Update rect for accuracy
     }
   });
 
@@ -1215,56 +1213,42 @@
     }
 
     if (ptr.pointers.size === 2) {
-      // Pinch Logic
+      // 2-Finger Pan + Zoom
       const dist = getPinchDist();
-      if (dist > 5 && ptr.initDist > 5) {
-        const scale = dist / ptr.initDist;
-        const newW = clamp(ptr.initVbW / scale, view.base.w / view.maxScale, view.base.w / view.minScale);
-        // Re-apply center
-        const center = getPointerCenter(); // average position of fingers
-        const vb = view.cur;
-        const ratio = view.base.w / view.base.h; // aspect ratio
-        const newH = newW / ratio; // maintain aspect if we want fixed aspect, but here width/height are linked in zoomAt. 
-        // Better to stick to zoomAt logic but continuous
-        // We can just calculate delta scale
-        // But let's verify if we need complex math.
-        // Simplified pinch:
-        const zoomFactor = scale;
-        // We need to zoom around the center point. 
-        // This requires some careful math to track "initCenter" in SVG coords
-        // For simplicity in this specialized tool:
+      const center = getPointerCenter();
 
-        // To do robust pinch to zoom, we'd need to track the vector.
-        // Let's rely on simple zoomAt call relative to previous frame? No, drift.
-        // Let's reset purely for now.
-        // Actually, let's treat it as a "zoomAt" the center point with ratio (dist / lastDist)
+      if (dist > 5 && ptr.lastDist > 5) {
+        const scale = dist / ptr.lastDist;
+        const rect = ptr.rect;
 
-        // Actually, we can reuse zoomAt logic but we need to track delta
-        // from last move event?
-        // To allow panning while zooming, multi-touch logic gets complex.
+        // Calculate new dimensions (Zoom)
+        const newW = clamp(view.cur.w / scale, view.base.w / view.maxScale, view.base.w / view.minScale);
+        const newH = clamp(view.cur.h / scale, view.base.h / view.maxScale, view.base.h / view.minScale);
 
-        // Let's implement a "simple" version:
-        // Continuous zoom relative to center of pinch
+        // Current mapped point under previous center
+        // We manually map lastCenter to SVG World Coords using CURRENT viewbox
+        const relX = (ptr.lastCenter.x - rect.left) / rect.width;
+        const relY = (ptr.lastCenter.y - rect.top) / rect.height;
+        const Px = view.cur.x + relX * view.cur.w;
+        const Py = view.cur.y + relY * view.cur.h;
 
-        // We need the PREVIOUS distance to calculate delta
-        // We don't store previous event in map easily without overhead.
-        // Let's just update initDist for next frame?
+        // We want P to move to 'center' in the NEW viewbox
+        // newVB.x = Px - (center.x - rect.left) / rect.width * newW
+        const newRelX = (center.x - rect.left) / rect.width;
+        const newRelY = (center.y - rect.top) / rect.height;
 
-        // Alternative:
-        // Just use the center of the two fingers as the zoom focus.
-        // This works well enough.
-        const newScale = dist / ptr.initDist;
-        // But scale is absolute from start of pinch. we need relative change.
-        // So we need to reset initDist every frame if we want relative application
-        // OR store initial viewbox and apply abs transform.
-        // Abs transform better for stability.
-        // ... But zoomAt logic modifies 'view.cur' immediately.
-        // So relative approach is easier with existing `zoomAt`.
+        const nextX = Px - newRelX * newW;
+        const nextY = Py - newRelY * newH;
 
-        // Wait, we can just do:
-        // zoomAt(center.x, center.y, dist / prevDist)
-        // But we need prevDist. 
-        // Let's store prevDist on the ptr object.
+        scheduleViewBox({
+          x: nextX,
+          y: nextY,
+          w: newW,
+          h: newH
+        });
+
+        ptr.lastDist = dist;
+        ptr.lastCenter = center;
       }
     } else if (ptr.pointers.size === 1 && ptr.down && e.pointerId === ptr.id) {
       // Single pointer drag/pan
@@ -1276,20 +1260,20 @@
       }
 
       if (ptr.dragging) {
-        // Drag logic using CTM for 1:1 movement
-        const ctm = svg.getScreenCTM();
-        if (ctm) {
-          // ctm.a is the X scale (pixels per unit), ctm.d is Y scale
-          // We want to move the viewBox by -dx/scale
-          // So if we move mouse 100px right, and scale is 2, we move VB 50 units left.
+        // Drag logic
+        // Use cached rect for simpler math or getScreenCTM
+        const rect = ptr.rect; // Use cached rect
+        // dx in pixels.
+        // scaleX = view.cur.w / rect.width
+        const scaleX = ptr.startVb.w / rect.width;
+        const scaleY = ptr.startVb.h / rect.height;
 
-          scheduleViewBox({
-            x: ptr.startVb.x - dx / ctm.a,
-            y: ptr.startVb.y - dy / ctm.d,
-            w: ptr.startVb.w,
-            h: ptr.startVb.h,
-          });
-        }
+        scheduleViewBox({
+          x: ptr.startVb.x - dx * scaleX,
+          y: ptr.startVb.y - dy * scaleY,
+          w: ptr.startVb.w,
+          h: ptr.startVb.h,
+        });
       }
     }
 
@@ -1298,32 +1282,6 @@
       const hid = getCountryIdFromEl(el);
       if (hid && countryById.has(hid)) setHover(hid, e.clientX, e.clientY);
       else clearHover();
-    }
-  });
-
-  // Custom multi-touch move handler for pinch relative delta
-  // We need to hackily store previous distance for smooth zoom
-  let lastPinchDist = 0;
-  svg.addEventListener('pointermove', (e) => {
-    // This is a second listener, might conflict. Let's merge logic above? 
-    // Actually the above listener handles state.
-    // Let's refine the pinch logic inside the main listener blocks if possible.
-    // To keep code clean in this "write", I'll just add the pinch logic block here:
-    if (ptr.pointers.size === 2) {
-      const d = getPinchDist();
-      if (lastPinchDist > 0 && Math.abs(d - lastPinchDist) > 2) {
-        const center = getPointerCenter();
-        const factor = d / lastPinchDist;
-        // Limit speed
-        const safeFactor = clamp(factor, 0.8, 1.2);
-        zoomAt(center.x, center.y, safeFactor);
-
-        // Also handle Pan (center moved) - tricky with zoom. 
-        // Standard behavior: zoom around center.
-      }
-      lastPinchDist = d;
-    } else {
-      lastPinchDist = 0;
     }
   });
 

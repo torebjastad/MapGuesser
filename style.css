@@ -92,6 +92,11 @@ body {
   flex-direction: column;
   gap: 12px;
   z-index: 20;
+  overflow-y: auto;
+  /* Enable vertical scrolling */
+  touch-action: pan-y;
+  /* Re-enable touch scrolling overridden by body */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Map Select Styling */
