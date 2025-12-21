@@ -1218,27 +1218,73 @@
       const center = getPointerCenter();
 
       if (dist > 5 && ptr.lastDist > 5) {
-        const scale = dist / ptr.lastDist;
+        let scaleChange = dist / ptr.lastDist;
+
+        // Deadzone for zoom to allow pure panning
+        if (Math.abs(scaleChange - 1) < 0.02) {
+          scaleChange = 1;
+        }
+
         const rect = ptr.rect;
 
-        // Calculate new dimensions (Zoom)
-        const newW = clamp(view.cur.w / scale, view.base.w / view.maxScale, view.base.w / view.minScale);
-        const newH = clamp(view.cur.h / scale, view.base.h / view.maxScale, view.base.h / view.minScale);
+        // Uniform scale factor for screen -> ViewBox units
+        // SVG "meet" preserves aspect ratio by fitting the smaller dimension
+        const sX = view.cur.w / rect.width;
+        const sY = view.cur.h / rect.height;
+        const unitsPerPx = Math.max(sX, sY);
 
-        // Current mapped point under previous center
-        // We manually map lastCenter to SVG World Coords using CURRENT viewbox
-        const relX = (ptr.lastCenter.x - rect.left) / rect.width;
-        const relY = (ptr.lastCenter.y - rect.top) / rect.height;
-        const Px = view.cur.x + relX * view.cur.w;
-        const Py = view.cur.y + relY * view.cur.h;
+        // 1. Calculate new Zoom (centered on screen midpoint)
+        // New Dimension = Old Dimension / scaleChange
+        const newW = clamp(view.cur.w / scaleChange, view.base.w / view.maxScale, view.base.w / view.minScale);
+        const newH = clamp(view.cur.h / scaleChange, view.base.h / view.maxScale, view.base.h / view.minScale);
 
-        // We want P to move to 'center' in the NEW viewbox
-        // newVB.x = Px - (center.x - rect.left) / rect.width * newW
-        const newRelX = (center.x - rect.left) / rect.width;
-        const newRelY = (center.y - rect.top) / rect.height;
+        // 2. Pan Compensation
+        // We need to move the point P (under the finger center) to the NEW center.
+        // But since we are doing relative frame-by-frame, we essentially just shift by delta.
+        // However, we also zoomed around 'center'.
 
-        const nextX = Px - newRelX * newW;
-        const nextY = Py - newRelY * newH;
+        // Let's do it simpler for frame-by-frame:
+        // A. Apply Zoom around `ptr.lastCenter` (which is where we were). 
+        //    Actually `center` is where we are NOW. `ptr.lastCenter` is where we were.
+        //    Usually: 
+        //      Step 1: Pan (move lastCenter to center) by shifting Viewbox.
+        //      Step 2: Zoom around center.
+
+        // Shift due to finger movement (Panning)
+        const dx = center.x - ptr.lastCenter.x;
+        const dy = center.y - ptr.lastCenter.y;
+
+        // Current top-left
+        let nextX = view.cur.x;
+        let nextY = view.cur.y;
+
+        // Apply Pan (Inverse direction of finger drag)
+        nextX -= dx * unitsPerPx;
+        nextY -= dy * unitsPerPx;
+
+        // Apply Zoom around the new center pointer
+        // World coordinates of the center pointer in the PANNED viewbox
+        // Note: unitsPerPx is based on CURRENT viewbox width, but if we change Width, unitsPerPx changes relative to base.
+        // Using view.cur is safe for the *start* of the frame.
+
+        // To zoom around `center` (screen px):
+        // WorldPoint P = TopLeft + (center - rectTopLeft) * unitsPerPx
+        // NewTopLeft = P - (center - rectTopLeft) * newUnitsPerPx
+
+        const centerRelX = (center.x - rect.left);
+        const centerRelY = (center.y - rect.top);
+
+        // Point in world under the cursor (using current scale)
+        const Px = nextX + centerRelX * unitsPerPx;
+        const Py = nextY + centerRelY * unitsPerPx;
+
+        // Now we calculate what the top-left SHOUL be if the width changed to newW
+        // newUnitsPerPx approx = newW / rect.width (assuming width is limiting factor, or max logic)
+        // If we use the same Aspect Ratio logic:
+        const nextUnitsPerPx = Math.max(newW / rect.width, newH / rect.height);
+
+        nextX = Px - centerRelX * nextUnitsPerPx;
+        nextY = Py - centerRelY * nextUnitsPerPx;
 
         scheduleViewBox({
           x: nextX,
