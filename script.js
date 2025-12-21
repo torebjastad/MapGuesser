@@ -1042,7 +1042,7 @@
     base: { x: 0, y: 0, w: 900, h: 800 },
     cur: null,
     minScale: 0.5,
-    maxScale: 18,
+    maxScale: 30,
     pending: null,
     raf: 0,
   };
