@@ -390,6 +390,42 @@ body {
   text-shadow: 0 0 15px rgba(52, 211, 153, 0.6);
 }
 
+#penaltyIndicator {
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 90px);
+  /* Offset to right of clock */
+  font-weight: 1000;
+  font-size: 32px;
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.8);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 15;
+  white-space: nowrap;
+}
+
+#penaltyIndicator.show {
+  animation: floatUpFade 1.5s ease-out forwards;
+}
+
+@keyframes floatUpFade {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.8);
+  }
+
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) scale(1);
+  }
+}
+
 #targetCountry {
   position: absolute;
   top: auto;
@@ -573,6 +609,47 @@ path.country.wrongflash {
   filter: drop-shadow(0 0 7px rgba(251, 113, 133, .55));
 }
 
+path.land.failed,
+path.country.failed {
+  fill: #ef4444 !important;
+  /* Bright Red */
+  stroke: rgba(255, 255, 255, 0.4) !important;
+  opacity: 1 !important;
+}
+
+path.land.flash-fail,
+path.country.flash-fail {
+  animation: flashBorder 2s ease-in-out;
+  fill: #ef4444 !important;
+}
+
+@keyframes flashBorder {
+
+  0%,
+  100% {
+    stroke: #ef4444;
+    stroke-width: 2;
+  }
+
+  25% {
+    stroke: #ffcc00;
+    stroke-width: 25;
+  }
+
+  /* Yellow flash */
+  50% {
+    stroke: #ef4444;
+    stroke-width: 2;
+  }
+
+  75% {
+    stroke: #ffcc00;
+    stroke-width: 25;
+  }
+
+  /* Yellow flash */
+}
+
 .hit {
   fill: none;
   stroke: transparent;
@@ -599,6 +676,17 @@ path.country.wrongflash {
   #clock {
     font-size: 32px;
   }
+}
+
+/* Failed List Item */
+.listItem.failed {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.listItem.failed .time-val {
+  color: #ef4444;
+  /* Red */
 }
 
 /* Modal Styling */

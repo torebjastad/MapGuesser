@@ -775,7 +775,7 @@
 
     for (const f of sorted) {
       const div = document.createElement('div');
-      div.className = 'listItem';
+      div.className = f.failed ? 'listItem failed' : 'listItem';
 
       const left = document.createElement('div');
 
@@ -926,6 +926,7 @@
       setPhase('done');
       return;
     }
+    state.attempts = 0;
     const idx = Math.floor(Math.random() * state.remainingIds.length);
     const id = state.remainingIds[idx];
     state.targetId = id;
@@ -937,6 +938,49 @@
     targetEl.textContent = c ? c.name : id;
   }
 
+  function handleFailure(failedId) {
+    const c = countryById.get(failedId);
+    if (!c) return;
+
+    // Visuals: Flash then permanent fail
+    c.el.classList.add('flash-fail');
+    c.guessed = true; // Mark as processed so it can't be guessed again
+
+    // Remove flash class after animation and keep permanent fail
+    setTimeout(() => {
+      c.el.classList.remove('flash-fail');
+      c.el.classList.add('failed');
+    }, 2000);
+
+    // Sound
+    errorSound();
+
+    // Penalty
+    const PENALTY_MS = 5000;
+    state.startAt -= PENALTY_MS; // Adds 5 seconds to elapsed time
+    state.mistakes++; // Count as a mistake? Yes, definitely.
+
+    // Show Indicator
+    const pi = $('#penaltyIndicator');
+    pi.classList.remove('show');
+    void pi.offsetWidth; // Force reflow
+    pi.classList.add('show');
+
+    // Progression
+    const timeTaken = now() - state.targetPickTime + PENALTY_MS;
+    state.found.push({ id: failedId, name: c.name, timeMs: timeTaken, failed: true });
+
+    const i = state.remainingIds.indexOf(failedId);
+    if (i >= 0) state.remainingIds.splice(i, 1);
+
+    updateGuessedRemaining();
+    updateMistakesUI();
+    renderFoundList();
+
+    toast(`Failed: ${c.name} (+5s)`, 'bad');
+    pickNextTarget();
+  }
+
   function resetGame() {
     clearPermanentLabels();
     flawlessBox.classList.remove('show');
@@ -944,7 +988,7 @@
 
     for (const c of countries) {
       c.guessed = false;
-      c.el.classList.remove('guessed', 'hovered', 'wrongflash');
+      c.el.classList.remove('guessed', 'hovered', 'wrongflash', 'failed', 'flash-fail');
       c.el.style.removeProperty('--c');
     }
     state.startAt = 0;
@@ -956,6 +1000,7 @@
     state.found = [];
     state.lastGuessedId = null;
     state.isFullRun = false;
+    state.attempts = 0;
 
     loadBestTime();
 
@@ -1068,6 +1113,7 @@
     state.correct = 0;
     state.found = [];
     state.remainingIds = activeIds;
+    state.attempts = 0;
 
     state.isFullRun = (activeIds.length === countries.length);
 
@@ -1136,15 +1182,21 @@
       pickNextTarget();
     } else {
       state.mistakes++;
+      state.attempts++;
+
       updateMistakesUI();
       errorSound();
 
-      const mapPt = svgPointFromClient(clientX, clientY);
-      spawnLabel(clicked.name, 'error', { mapX: mapPt.x, mapY: mapPt.y });
+      if (state.attempts >= 3) {
+        handleFailure(state.targetId);
+      } else {
+        const mapPt = svgPointFromClient(clientX, clientY);
+        spawnLabel(clicked.name, 'error', { mapX: mapPt.x, mapY: mapPt.y });
 
-      clicked.el.classList.add('wrongflash');
-      setTimeout(() => clicked.el.classList.remove('wrongflash'), 260);
-      toast(`Wrong: ${clicked.name}`, 'bad');
+        clicked.el.classList.add('wrongflash');
+        setTimeout(() => clicked.el.classList.remove('wrongflash'), 260);
+        toast(`Wrong: ${clicked.name} (${state.attempts}/3)`, 'bad');
+      }
     }
   }
 
