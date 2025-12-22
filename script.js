@@ -973,6 +973,83 @@
     setPhase('idle');
   }
 
+  // --- LONG PRESS RESET LOGIC ---
+  let resetTimer = 0;
+  let resetStartTime = 0;
+  const RESET_DURATION = 500;
+  let ignoreClick = false;
+
+  function handleResetStart(e) {
+    if (state.phase !== 'running' && state.phase !== 'done') return; // Only allow reset if running/done? or anytime? usually anytime not idle.
+    // Actually, user said "game can be reset". If it's idle, it's already reset.
+    if (state.phase === 'idle') return;
+
+    // Prevent default click behavior
+    if (e.cancelable) e.preventDefault();
+
+    resetStartTime = now();
+    targetEl.classList.add('reset-arming');
+
+    // Force reflow to ensure black starts immediately before transition
+    void targetEl.offsetWidth;
+
+    targetEl.classList.add('reset-active');
+  }
+
+  function handleResetEnd(e) {
+    if (!resetStartTime) return;
+
+    const duration = now() - resetStartTime;
+    cancelReset();
+
+    if (duration >= RESET_DURATION) {
+      resetGame();
+      toast('Game Reset', 'bad');
+
+      // Prevent the subsequent click from restarting the game immediately
+      ignoreClick = true;
+      setTimeout(() => ignoreClick = false, 500);
+    } else {
+      // toast('Hold longer to reset', 'bad'); 
+      // Optional: feedback if released too early?
+    }
+  }
+
+  function cancelReset() {
+    resetStartTime = 0;
+    targetEl.classList.remove('reset-arming', 'reset-active');
+  }
+
+  // Attach Reset Listeners
+  // targetEl.onclick = resetGame; // REMOVED simple click
+  targetEl.addEventListener('mousedown', handleResetStart);
+  targetEl.addEventListener('touchstart', handleResetStart, { passive: false });
+
+  targetEl.addEventListener('mouseup', handleResetEnd);
+  targetEl.addEventListener('touchend', handleResetEnd);
+
+  targetEl.addEventListener('mouseleave', cancelReset);
+  // specific logic for touch moving off element is tricky, 
+  // but if they drag *off* it usually fires standard events or we can rely on cancel triggers.
+  // Ideally we track touchmove and check elementFromPoint, but mouseleave covers mouse.
+  // For touch, often just lifting finger triggers end.
+  // If they slide off, they might not trigger 'leave'.
+  // Let's add touchcancel.
+  targetEl.addEventListener('touchcancel', cancelReset);
+
+  targetEl.addEventListener('touchmove', (e) => {
+    // If pointer moves outside bounding box, cancel reset
+    const t = e.touches[0];
+    const rect = targetEl.getBoundingClientRect();
+    // Use a small buffer? No, strict is fine.
+    if (t.clientX < rect.left || t.clientX > rect.right || t.clientY < rect.top || t.clientY > rect.bottom) {
+      cancelReset();
+    }
+  }, { passive: true });
+
+  // Ensure no old click handler exists if it was assigned via property
+  targetEl.onclick = null;
+
   function startGame() {
     const activeIds = countries.filter(c => c.enabled).map(c => c.id);
 
@@ -1448,7 +1525,18 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
   }
 
   startBtn.addEventListener('click', toggleStartReset);
-  targetEl.addEventListener('click', toggleStartReset);
+  targetEl.addEventListener('click', (e) => {
+    if (ignoreClick) {
+      ignoreClick = false;
+      return;
+    }
+    // Only allow starting via click, not resetting (use long press)
+    if (state.phase === 'idle') {
+      toggleStartReset();
+    } else {
+      toast('Hold to RESET', '');
+    }
+  });
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {

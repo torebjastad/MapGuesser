@@ -441,6 +441,18 @@ body {
   background: rgba(0, 0, 0, .40);
 }
 
+/* Long Press Reset Styles */
+#targetCountry.reset-arming {
+  background: #000 !important;
+  color: #fff !important;
+  transition: none !important;
+}
+
+#targetCountry.reset-active {
+  background: #ef4444 !important;
+  transition: background 0.5s linear !important;
+}
+
 /* Flawless Bonus Box */
 #flawlessBox {
   position: absolute;
