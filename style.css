@@ -337,16 +337,7 @@ body {
   background: rgba(255, 255, 255, .06);
 }
 
-.listItem.config input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
 
-.listItem.disabled {
-  opacity: 0.5;
-}
 
 .pill {
   font-size: 11px;
@@ -595,8 +586,8 @@ path.country.guessed {
   stroke: rgba(255, 255, 255, .30) !important;
 }
 
-path.land.hovered,
-path.country.hovered {
+path.land.hovered:not(.flash-fail),
+path.country.hovered:not(.flash-fail) {
   stroke: var(--accent) !important;
   stroke-width: 2.2 !important;
   filter: drop-shadow(0 0 7px rgba(251, 191, 36, .55));

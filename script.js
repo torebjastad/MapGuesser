@@ -645,7 +645,7 @@
       const name = (el.getAttribute('title') || el.getAttribute('data-id') || el.getAttribute('data-name') || id).trim();
       try {
         const bbox = el.getBBox();
-        const c = { id, name, el, bbox, guessed: false, enabled: true };
+        const c = { id, name, el, bbox, guessed: false };
         countries.push(c);
         countryById.set(id, c);
       } catch (_) { }
@@ -811,13 +811,9 @@
   }
 
   function renderConfigList() {
-    listTitleEl.textContent = 'CONFIG';
-    listActionEl.textContent = 'Select All';
-    listActionEl.onclick = () => {
-      const allEnabled = countries.every(c => c.enabled);
-      countries.forEach(c => c.enabled = !allEnabled);
-      renderConfigList();
-    };
+    listTitleEl.textContent = 'MAP LIST';
+    listActionEl.textContent = '';
+    listActionEl.onclick = null;
 
     foundListEl.innerHTML = '';
     if (countries.length === 0) {
@@ -827,26 +823,20 @@
 
     for (const c of countries) {
       const div = document.createElement('div');
-      div.className = `listItem config ${c.enabled ? '' : 'disabled'}`;
+      div.className = 'listItem config';
+      div.style.cursor = 'pointer';
 
       const label = document.createElement('div');
       label.textContent = c.name;
       label.style.fontWeight = '700';
       label.style.fontSize = '13px';
 
-      const chk = document.createElement('input');
-      chk.type = 'checkbox';
-      chk.checked = c.enabled;
-      chk.dataset.id = c.id;
-
-      chk.onclick = (e) => { e.stopPropagation(); c.enabled = chk.checked; div.className = `listItem config ${c.enabled ? '' : 'disabled'}`; };
-
       div.onclick = (e) => {
-        if (e.target !== chk) {
-          chk.checked = !chk.checked;
-          c.enabled = chk.checked;
-          div.className = `listItem config ${c.enabled ? '' : 'disabled'}`;
-        }
+        // Flash animation
+        c.el.classList.remove('flash-fail');
+        void c.el.offsetWidth;
+        c.el.classList.add('flash-fail');
+        setTimeout(() => c.el.classList.remove('flash-fail'), 2000);
       };
 
       div.addEventListener('mouseenter', () => {
@@ -857,7 +847,6 @@
       });
 
       div.appendChild(label);
-      div.appendChild(chk);
       foundListEl.appendChild(div);
     }
   }
@@ -1096,7 +1085,7 @@
   targetEl.onclick = null;
 
   function startGame() {
-    const activeIds = countries.filter(c => c.enabled).map(c => c.id);
+    const activeIds = countries.map(c => c.id);
 
     if (activeIds.length === 0) {
       toast('Map is empty!', 'bad');
@@ -1139,7 +1128,7 @@
     if (!clickedId) return;
 
     const clicked = countryById.get(clickedId);
-    if (!clicked || !clicked.enabled) return;
+    if (!clicked) return;
 
     // Filter out bounces/echoes: Impossible to react in < 250ms
     if (now() - state.targetPickTime < 250) {
@@ -1312,7 +1301,7 @@
     ptr.hoveredId = id;
     if (id) {
       const c = countryById.get(id);
-      if (c && !c.guessed && c.enabled) {
+      if (c && !c.guessed) {
         c.el.classList.add('hovered');
         if (state.phase !== 'running') {
           spawnLabel(c.name, 'permanent', { clientX, clientY });
