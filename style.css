@@ -213,7 +213,6 @@ body {
   border: 1px solid rgba(255, 255, 255, .08);
   min-height: 120px;
   margin-top: 4px;
-  /* small gap after stats */
 }
 
 .leaderboard-content {
@@ -845,4 +844,28 @@ path.country.flash-fail {
 
 .btn.secondary:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile Landscape Optimizations */
+@media (max-height: 500px) and (orientation: landscape) {
+  #sidePane {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .listContainer {
+    min-height: 150px;
+    /* Ensure country list is accessible */
+  }
+
+  .leaderboard-container {
+    min-height: 100px;
+    /* Allow it to grow, parent will scroll */
+  }
+
+  #targetCountry {
+    bottom: 4px;
+    font-size: 24px;
+    padding: 4px 10px;
+  }
 }
