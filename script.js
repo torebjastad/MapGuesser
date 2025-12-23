@@ -948,7 +948,6 @@
     // Penalty
     const PENALTY_MS = 5000;
     state.startAt -= PENALTY_MS; // Adds 5 seconds to elapsed time
-    state.mistakes++; // Count as a mistake? Yes, definitely.
 
     // Show Indicator
     const pi = $('#penaltyIndicator');
