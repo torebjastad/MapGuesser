@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.9';
+  const APP_VERSION = '3.0';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -1192,13 +1192,24 @@
         // Flash both original and expanded hit-path
         const hitPath = clicked.el.parentNode.querySelector(`.hit-path[data-ref="${clickedId}"]`);
 
-        clicked.el.classList.add('wrongflash');
-        if (hitPath) hitPath.classList.add('wrongflash');
+        requestAnimationFrame(() => {
+          clicked.el.classList.add('wrongflash');
+          if (hitPath) hitPath.classList.add('wrongflash');
 
-        setTimeout(() => {
-          clicked.el.classList.remove('wrongflash');
-          if (hitPath) hitPath.classList.remove('wrongflash');
-        }, 400);
+          setTimeout(() => {
+            clicked.el.classList.remove('wrongflash');
+            if (hitPath) hitPath.classList.remove('wrongflash');
+
+            // Force browser to repaint the SVG to clear ghost artifacts
+            const svg = clicked.el.ownerSVGElement;
+            if (svg) {
+              const prev = svg.style.display;
+              svg.style.display = 'none';
+              svg.offsetHeight; // force reflow
+              svg.style.display = prev;
+            }
+          }, 400);
+        });
 
         toast(`Wrong: ${clicked.name} (${state.attempts}/3)`, 'bad');
       }
