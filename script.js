@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.6';
+  const APP_VERSION = '2.7';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -657,36 +657,37 @@
     const vbArea = vb.w * vb.h;
     if (countries.length > 0) {
       const bboxAreas = countries.map(c => Math.max(0.000001, c.bbox.width * c.bbox.height)).sort((a, b) => a - b);
-      const p08 = bboxAreas[Math.floor(bboxAreas.length * 0.08)] || bboxAreas[0] || 0;
-      const absThresh = vbArea * 0.00035;
-      const microThresh = Math.min(absThresh, p08 * 1.2);
+
+      let medianArea = 0;
+      if (bboxAreas.length > 0) {
+        const mid = Math.floor(bboxAreas.length / 2);
+        medianArea = bboxAreas.length % 2 !== 0 ? bboxAreas[mid] : (bboxAreas[mid - 1] + bboxAreas[mid]) / 2;
+      }
+
+      const microThresh = medianArea > 0 ? medianArea / 10 : vbArea * 0.00035;
 
       for (const c of countries) {
         const a = c.bbox.width * c.bbox.height;
+        // Flag microstates
+        if (a <= microThresh) {
+          c.isMicro = true;
+        }
+
+        const cx = c.bbox.x + c.bbox.width / 2;
+        const cy = c.bbox.y + c.bbox.height / 2;
+        c.center = { x: cx, y: cy };
+
         if (a > microThresh) continue;
 
         const hp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         hp.setAttribute('d', c.el.getAttribute('d') || '');
         hp.setAttribute('class', 'hit hit-path');
         hp.dataset.ref = c.id;
-        hp.setAttribute('stroke-width', '18');
+        hp.setAttribute('stroke-width', '30');
         hp.setAttribute('vector-effect', 'non-scaling-stroke');
         hp.setAttribute('pointer-events', 'stroke');
 
-        const cx = c.bbox.x + c.bbox.width / 2;
-        const cy = c.bbox.y + c.bbox.height / 2;
-        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        dot.setAttribute('cx', String(cx));
-        dot.setAttribute('cy', String(cy));
-        dot.setAttribute('r', '0.1');
-        dot.setAttribute('class', 'hit hit-dot');
-        dot.dataset.ref = c.id;
-        dot.setAttribute('stroke-width', '26');
-        dot.setAttribute('vector-effect', 'non-scaling-stroke');
-        dot.setAttribute('pointer-events', 'stroke');
-
         c.el.insertAdjacentElement('afterend', hp);
-        hp.insertAdjacentElement('afterend', dot);
       }
     }
   }
@@ -1123,9 +1124,16 @@
     state.rafTimer = requestAnimationFrame(tickClock);
   }
 
-  function handleGuess(clickedId, clientX, clientY) {
+  function handleGuess(candidateIds, clientX, clientY) {
     if (state.phase !== 'running') return;
-    if (!clickedId) return;
+    if (!candidateIds || candidateIds.length === 0) return;
+
+    // Logic: If the target is in the candidates, pick it!
+    // Otherwise pick the first one.
+    let clickedId = candidateIds[0];
+    if (state.targetId && candidateIds.includes(state.targetId)) {
+      clickedId = state.targetId;
+    }
 
     const clicked = countryById.get(clickedId);
     if (!clicked) return;
@@ -1527,7 +1535,15 @@ dWx: ${dWx.toFixed(1)} dWy: ${dWy.toFixed(1)}`;
       // All fingers up
       if (ptr.down && !ptr.dragging && e.pointerId === ptr.id) {
         // Click
-        handleGuess(ptr.downCountryId, e.clientX, e.clientY);
+        const els = document.elementsFromPoint(e.clientX, e.clientY);
+        const candidates = new Set();
+        for (const el of els) {
+          const id = getCountryIdFromEl(el);
+          if (id) candidates.add(id);
+        }
+        if (candidates.size > 0) {
+          handleGuess(Array.from(candidates), e.clientX, e.clientY);
+        }
       }
       ptr.down = false;
       ptr.dragging = false;
