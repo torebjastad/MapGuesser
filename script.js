@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.7';
+  const APP_VERSION = '2.8';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -1189,8 +1189,17 @@
         const mapPt = svgPointFromClient(clientX, clientY);
         spawnLabel(clicked.name, 'error', { mapX: mapPt.x, mapY: mapPt.y });
 
+        // Flash both original and expanded hit-path
+        const hitPath = clicked.el.parentNode.querySelector(`.hit-path[data-ref="${clickedId}"]`);
+
         clicked.el.classList.add('wrongflash');
-        setTimeout(() => clicked.el.classList.remove('wrongflash'), 260);
+        if (hitPath) hitPath.classList.add('wrongflash');
+
+        setTimeout(() => {
+          clicked.el.classList.remove('wrongflash');
+          if (hitPath) hitPath.classList.remove('wrongflash');
+        }, 400);
+
         toast(`Wrong: ${clicked.name} (${state.attempts}/3)`, 'bad');
       }
     }

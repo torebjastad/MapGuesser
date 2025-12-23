@@ -586,17 +586,19 @@ path.country.guessed {
   stroke: rgba(255, 255, 255, .30) !important;
 }
 
-path.land.hovered:not(.flash-fail),
-path.country.hovered:not(.flash-fail) {
+path.land.hovered:not(.flash-fail):not(.wrongflash),
+path.country.hovered:not(.flash-fail):not(.wrongflash) {
   stroke: var(--accent) !important;
   stroke-width: 2.2 !important;
   filter: drop-shadow(0 0 7px rgba(251, 191, 36, .55));
 }
 
 path.land.wrongflash,
-path.country.wrongflash {
+path.country.wrongflash,
+.hit.wrongflash {
   stroke: var(--bad) !important;
-  stroke-width: 2.6 !important;
+  stroke-width: 4 !important;
+  vector-effect: non-scaling-stroke !important;
   filter: drop-shadow(0 0 7px rgba(251, 113, 133, .55));
 }
 
