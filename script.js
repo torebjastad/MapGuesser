@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '3.0';
+  const APP_VERSION = '3.1';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
@@ -928,12 +928,48 @@
     targetEl.textContent = c ? c.name : id;
   }
 
+  function spawnRipple(center) {
+    if (!center) return;
+
+    // Convert SVG Map Point -> Screen Point
+    // We use the same logic as label positioning
+    const pt = svg.createSVGPoint();
+    pt.x = center.x;
+    pt.y = center.y;
+
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+
+    // Calculate screen position
+    const screenPt = pt.matrixTransform(ctm);
+
+    // Create HTML Circle
+    const div = document.createElement('div');
+    div.classList.add('ripple-html');
+
+    // account for page scroll if any (usually fixed, but good practice)
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+    div.style.left = (screenPt.x + scrollLeft) + 'px';
+    div.style.top = (screenPt.y + scrollTop) + 'px';
+
+    document.body.appendChild(div);
+
+    // Remove after animation (1s)
+    setTimeout(() => {
+      div.remove();
+    }, 1000);
+  }
+
   function handleFailure(failedId) {
     const c = countryById.get(failedId);
     if (!c) return;
 
-    // Visuals: Flash then permanent fail
+    // Visuals: Pulse Fill + Ripple
     c.el.classList.add('flash-fail');
+    spawnRipple(c.center);
+
     c.guessed = true; // Mark as processed so it can't be guessed again
 
     // Remove flash class after animation and keep permanent fail

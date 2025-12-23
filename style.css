@@ -621,36 +621,55 @@ path.country.failed {
 
 path.land.flash-fail,
 path.country.flash-fail {
-  animation: flashBorder 2s ease-in-out;
+  animation: flashFill 0.5s ease-in-out 4 alternate;
+  /* 2 seconds total (0.5 * 4) */
   fill: #ef4444 !important;
 }
 
-@keyframes flashBorder {
+@keyframes flashFill {
 
   0%,
   100% {
-    stroke: #ef4444;
-    stroke-width: 2;
+    fill-opacity: 1;
   }
 
-  25% {
-    stroke: #ffcc00;
-    stroke-width: 25;
-  }
-
-  /* Yellow flash */
   50% {
-    stroke: #ef4444;
-    stroke-width: 2;
+    fill-opacity: 0.3;
   }
-
-  75% {
-    stroke: #ffcc00;
-    stroke-width: 25;
-  }
-
-  /* Yellow flash */
 }
+
+/* Ripple Animation for "Sonar" effect */
+/* HTML Ripple Animation for "Sonar" effect */
+.ripple-html {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: transparent;
+  border: 4px solid #ef4444;
+  opacity: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.5);
+  /* Center and start small */
+  animation: rippleExpandHtml 1s ease-out forwards;
+  z-index: 9999;
+  /* Ensure it's on top */
+}
+
+@keyframes rippleExpandHtml {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 1;
+    border-width: 5px;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(4.0);
+    opacity: 0;
+    border-width: 0px;
+  }
+}
+
 
 .hit {
   fill: none;
