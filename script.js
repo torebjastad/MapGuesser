@@ -14,7 +14,7 @@
   }
 
   // Increment this when you update map files to force reload
-  const APP_VERSION = '2.8';
+  const APP_VERSION = '2.9';
   const DEBUG_TOUCH = false;
 
   const mapCache = new Map();
