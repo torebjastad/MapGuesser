@@ -851,16 +851,29 @@ path.country.flash-fail {
   #sidePane {
     padding: 8px 10px;
     gap: 8px;
+    display: block;
+    /* Switch to block layout to rely on natural scrolling flow */
+  }
+
+  .statsGrid {
+    /* Ensure stats are visible as requested */
+    display: grid;
   }
 
   .listContainer {
-    min-height: 150px;
-    /* Ensure country list is accessible */
+    /* Disable flex-filling behavior */
+    flex: none;
+    height: 300px;
+    /* Fixed height for the list area itself */
+    min-height: 0;
+    margin-bottom: 20px;
+    /* Space at bottom */
   }
 
   .leaderboard-container {
     min-height: 100px;
-    /* Allow it to grow, parent will scroll */
+    /* Allow it to grow naturally */
+    flex: none;
   }
 
   #targetCountry {
