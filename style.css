@@ -600,16 +600,15 @@ path.country.hovered:not(.flash-fail):not(.wrongflash) {
 
 path.land.wrongflash,
 path.country.wrongflash {
-  fill: #ef4444 !important;
-  /* Bright Red Fill */
-  fill-opacity: 1 !important;
-  transition: none;
-  /* Instant change */
+  stroke: #ef4444 !important;
+  /* Bright Red Stroke */
+  opacity: 1 !important;
+  transition: stroke 0.1s;
 }
 
 .hit.wrongflash {
-  /* For hit targets, we might want to keep them invisible or just let the main path handle it */
-  stroke: transparent !important;
+  stroke: #ef4444 !important;
+  opacity: 1 !important;
 }
 
 path.land.failed,
