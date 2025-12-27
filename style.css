@@ -600,14 +600,16 @@ path.country.hovered:not(.flash-fail):not(.wrongflash) {
 
 path.land.wrongflash,
 path.country.wrongflash {
-  stroke: var(--bad) !important;
-  stroke-width: 6 !important;
-  vector-effect: non-scaling-stroke !important;
+  fill: #ef4444 !important;
+  /* Bright Red Fill */
+  fill-opacity: 1 !important;
+  transition: none;
+  /* Instant change */
 }
 
 .hit.wrongflash {
-  stroke: var(--bad) !important;
-  vector-effect: non-scaling-stroke !important;
+  /* For hit targets, we might want to keep them invisible or just let the main path handle it */
+  stroke: transparent !important;
 }
 
 path.land.failed,
